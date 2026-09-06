@@ -18,7 +18,6 @@ import {
   ShieldCheck,
   Sparkles,
   SunMedium,
-  TableProperties,
 } from 'lucide-react';
 import type { ElementType, ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
@@ -658,102 +657,6 @@ export default function Home() {
     );
   }, [screen, mode, activeTool, selectedFindId, findState, placements, chosenInterpretation]);
 
-  useEffect(() => {
-    const context = document.modelContext;
-    if (!context?.registerTool) return;
-    const lifecycle = new AbortController();
-    const register = (tool: ModelContextTool) => {
-      try {
-        void Promise.resolve(context.registerTool(tool, { signal: lifecycle.signal }));
-      } catch {
-        // WebMCP is optional in unsupported preview surfaces.
-      }
-    };
-
-    register({
-      name: 'read_riverbend_state',
-      title: 'Read Riverbend state',
-      description: 'Return current progress, mode, selected find, and active interpretation.',
-      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-      annotations: { readOnlyHint: true, untrustedContentHint: false },
-      execute: () => ({
-        mode,
-        screen,
-        activeTool,
-        selectedFind: selectedFind.name,
-        recovered: recoveredFinds.length,
-        progress: sliceProgress,
-        interpretation: chosenScore.label,
-        confidence: chosenScore.confidence,
-      }),
-    });
-
-    register({
-      name: 'seed_representative_evidence_tray',
-      title: 'Seed evidence tray',
-      description: 'Recover a representative evidence set for joining, grouping, and reconstruction.',
-      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-      annotations: { readOnlyHint: false, untrustedContentHint: false },
-      execute: () => {
-        recoverStarterSet();
-        return { recovered: 11, next: 'Use joins, grouping, reconstruction, or interpretation review.' };
-      },
-    });
-
-    register({
-      name: 'choose_site_interpretation',
-      title: 'Choose site interpretation',
-      description: 'Advance one of the three supported site interpretations.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          interpretationId: { type: 'string', enum: ['A', 'B', 'C'] },
-        },
-        required: ['interpretationId'],
-        additionalProperties: false,
-      },
-      annotations: { readOnlyHint: false, untrustedContentHint: false },
-      execute: (input) => {
-        const value =
-          input && typeof input === 'object' && 'interpretationId' in input
-            ? (input as { interpretationId?: string }).interpretationId
-            : undefined;
-        if (value !== 'A' && value !== 'B' && value !== 'C') {
-          throw new Error('interpretationId must be A, B, or C.');
-        }
-        setChosenInterpretation(value);
-        setScreen('interpretation');
-        return { chosen: value };
-      },
-    });
-
-    register({
-      name: 'start_fieldwork_variation',
-      title: 'Start Fieldwork variation',
-      description: 'Switch to the authored Fieldwork variation and reset progress.',
-      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-      annotations: { readOnlyHint: false, untrustedContentHint: false },
-      execute: () => {
-        setMode('fieldwork');
-        setFindState(initialFindState);
-        setPlacements({});
-        setScreen('excavation');
-        return { mode: 'fieldwork', next: 'Excavate the reshuffled authored contexts.' };
-      },
-    });
-
-    return () => lifecycle.abort();
-  }, [
-    activeTool,
-    chosenScore.confidence,
-    chosenScore.label,
-    mode,
-    recoveredFinds.length,
-    screen,
-    selectedFind.name,
-    sliceProgress,
-  ]);
-
   const selectedFind = finds.find((find) => find.id === selectedFindId) ?? finds[0];
   const selectedState = findState[selectedFind.id];
   const recoveredFinds = finds.filter((find) => findState[find.id]?.recovered);
@@ -940,6 +843,102 @@ export default function Home() {
     setScreen('excavation');
     setGuidance('Fieldwork reshuffles the same authored evidence into a compact variation.');
   }
+
+  useEffect(() => {
+    const context = document.modelContext;
+    if (!context?.registerTool) return;
+    const lifecycle = new AbortController();
+    const register = (tool: ModelContextTool) => {
+      try {
+        void Promise.resolve(context.registerTool(tool, { signal: lifecycle.signal }));
+      } catch {
+        // WebMCP is optional in unsupported preview surfaces.
+      }
+    };
+
+    register({
+      name: 'read_riverbend_state',
+      title: 'Read Riverbend state',
+      description: 'Return current progress, mode, selected find, and active interpretation.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true, untrustedContentHint: false },
+      execute: () => ({
+        mode,
+        screen,
+        activeTool,
+        selectedFind: selectedFind.name,
+        recovered: recoveredFinds.length,
+        progress: sliceProgress,
+        interpretation: chosenScore.label,
+        confidence: chosenScore.confidence,
+      }),
+    });
+
+    register({
+      name: 'seed_representative_evidence_tray',
+      title: 'Seed evidence tray',
+      description: 'Recover a representative evidence set for joining, grouping, and reconstruction.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: false, untrustedContentHint: false },
+      execute: () => {
+        recoverStarterSet();
+        return { recovered: 11, next: 'Use joins, grouping, reconstruction, or interpretation review.' };
+      },
+    });
+
+    register({
+      name: 'choose_site_interpretation',
+      title: 'Choose site interpretation',
+      description: 'Advance one of the three supported site interpretations.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          interpretationId: { type: 'string', enum: ['A', 'B', 'C'] },
+        },
+        required: ['interpretationId'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, untrustedContentHint: false },
+      execute: (input) => {
+        const value =
+          input && typeof input === 'object' && 'interpretationId' in input
+            ? (input as { interpretationId?: string }).interpretationId
+            : undefined;
+        if (value !== 'A' && value !== 'B' && value !== 'C') {
+          throw new Error('interpretationId must be A, B, or C.');
+        }
+        setChosenInterpretation(value);
+        setScreen('interpretation');
+        return { chosen: value };
+      },
+    });
+
+    register({
+      name: 'start_fieldwork_variation',
+      title: 'Start Fieldwork variation',
+      description: 'Switch to the authored Fieldwork variation and reset progress.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: false, untrustedContentHint: false },
+      execute: () => {
+        setMode('fieldwork');
+        setFindState(initialFindState);
+        setPlacements({});
+        setScreen('excavation');
+        return { mode: 'fieldwork', next: 'Excavate the reshuffled authored contexts.' };
+      },
+    });
+
+    return () => lifecycle.abort();
+  }, [
+    activeTool,
+    chosenScore.confidence,
+    chosenScore.label,
+    mode,
+    recoveredFinds.length,
+    screen,
+    selectedFind.name,
+    sliceProgress,
+  ]);
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-background text-foreground">
