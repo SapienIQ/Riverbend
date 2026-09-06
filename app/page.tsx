@@ -13,6 +13,7 @@ import {
   Layers3,
   Lightbulb,
   Map,
+  Menu,
   Rotate3D,
   Save,
   Search,
@@ -36,6 +37,15 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from '@/components/ui/drawer';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -51,6 +61,7 @@ type Screen =
 type Tool = 'brush' | 'pick' | 'stabilize' | 'lift' | 'light' | 'join';
 type SoundCue = 'brush' | 'pick' | 'stabilize' | 'lift' | 'join' | 'place' | 'blocked' | 'clean';
 type ExcavationFocus = 'hearth' | 'bench' | 'threshold' | 'pit' | 'collapse' | 'north';
+type TutorialStep = 'firstBrush' | 'firstLift' | 'firstLook' | 'firstMatch' | 'firstBuild' | 'freePlay';
 type Confidence =
   | 'Confirmed'
   | 'Strongly supported'
@@ -797,8 +808,33 @@ function hasConfirmedJoin(findState: Record<string, FindState>, ids: string[]) {
   );
 }
 
+function unlockedScreensForState(findState: Record<string, FindState>, placements: Record<string, string>, hasCompletedMainLoop: boolean) {
+  const recoveredFinds = finds.filter((find) => findState[find.id]?.recovered);
+  const unlocked: Screen[] = ['excavation'];
+  if (recoveredFinds.length > 0) unlocked.push('examination');
+  if (joinPairs.some((pair) => pair.ids.every((id) => findState[id]?.recovered))) unlocked.push('joins');
+  if (finds.some((find) => findState[find.id]?.groups.length)) unlocked.push('reconstruction');
+  if (Object.keys(placements).length > 0) unlocked.push('interpretation');
+  if (hasCompletedMainLoop) unlocked.push('survey', 'fieldwork');
+  return unlocked;
+}
+
+function tutorialStepForState(
+  findState: Record<string, FindState>,
+  placements: Record<string, string>,
+  hasCompletedMainLoop: boolean,
+): TutorialStep {
+  if (hasCompletedMainLoop) return 'freePlay';
+  if (Object.keys(placements).length > 0) return 'freePlay';
+  if (finds.some((find) => findState[find.id]?.groups.length)) return 'firstBuild';
+  if (joinPairs.some((pair) => pair.ids.every((id) => findState[id]?.recovered))) return 'firstMatch';
+  if (finds.some((find) => findState[find.id]?.recovered)) return 'firstLook';
+  if (findState['1']?.exposed >= 70) return 'firstLift';
+  return 'firstBrush';
+}
+
 export default function Home() {
-  const [screen, setScreen] = useState<Screen>('survey');
+  const [screen, setScreen] = useState<Screen>('excavation');
   const [mode, setMode] = useState<'expedition' | 'fieldwork'>('expedition');
   const [activeTool, setActiveTool] = useState<Tool>('brush');
   const [selectedFindId, setSelectedFindId] = useState('1');
@@ -806,11 +842,12 @@ export default function Home() {
   const [findState, setFindState] = useState<Record<string, FindState>>(initialFindState);
   const [placements, setPlacements] = useState<Record<string, string>>({});
   const [chosenInterpretation, setChosenInterpretation] = useState<'A' | 'B' | 'C'>('B');
-  const [guidance, setGuidance] = useState('A hard edge is peeking through by the hearth.');
+  const [guidance, setGuidance] = useState('Something is peeking through by the hearth. Brush it gently.');
   const [saved, setSaved] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [fieldworkHistoryId, setFieldworkHistoryId] = useState<FieldworkHistory['id']>('threshold');
+  const [hasCompletedMainLoop, setHasCompletedMainLoop] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
@@ -827,22 +864,32 @@ export default function Home() {
           activeTool?: Tool;
           selectedFindId?: string;
           excavationFocus?: ExcavationFocus;
+          guidance?: string;
           findState?: Record<string, FindState>;
           placements?: Record<string, string>;
           chosenInterpretation?: 'A' | 'B' | 'C';
           soundEnabled?: boolean;
           fieldworkHistoryId?: FieldworkHistory['id'];
+          unlockedScreens?: Screen[];
+          tutorialStep?: TutorialStep;
+          hasCompletedMainLoop?: boolean;
         };
-        setScreen(parsed.screen ?? 'survey');
+        const restoredFindState = parsed.findState ?? initialFindState;
+        const restoredPlacements = parsed.placements ?? {};
+        const restoredComplete = parsed.hasCompletedMainLoop ?? false;
+        const restoredUnlocked = parsed.unlockedScreens ?? unlockedScreensForState(restoredFindState, restoredPlacements, restoredComplete);
+        setScreen(restoredUnlocked.includes(parsed.screen ?? 'excavation') ? parsed.screen ?? 'excavation' : restoredUnlocked[0]);
         setMode(parsed.mode ?? 'expedition');
         setActiveTool(parsed.activeTool ?? 'brush');
         setSelectedFindId(parsed.selectedFindId ?? '1');
         setExcavationFocus(parsed.excavationFocus ?? 'hearth');
-        setFindState(parsed.findState ?? initialFindState);
-        setPlacements(parsed.placements ?? {});
+        setFindState(restoredFindState);
+        setPlacements(restoredPlacements);
         setChosenInterpretation(parsed.chosenInterpretation ?? 'B');
+        setGuidance(parsed.guidance ?? 'Something is peeking through by the hearth. Brush it gently.');
         setSoundEnabled(parsed.soundEnabled ?? true);
         setFieldworkHistoryId(parsed.fieldworkHistoryId ?? 'threshold');
+        setHasCompletedMainLoop(restoredComplete);
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
       } finally {
@@ -851,25 +898,6 @@ export default function Home() {
     }, 0);
     return () => window.clearTimeout(restore);
   }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        screen,
-        mode,
-        activeTool,
-        selectedFindId,
-        excavationFocus,
-        findState,
-        placements,
-        chosenInterpretation,
-        soundEnabled,
-        fieldworkHistoryId,
-      }),
-    );
-  }, [hydrated, screen, mode, activeTool, selectedFindId, excavationFocus, findState, placements, chosenInterpretation, soundEnabled, fieldworkHistoryId]);
 
   const selectedFind = finds.find((find) => find.id === selectedFindId) ?? finds[0];
   const selectedState = findState[selectedFind.id];
@@ -918,13 +946,107 @@ export default function Home() {
     interpretationScores[1];
   const activeFieldworkHistory =
     fieldworkHistories.find((history) => history.id === fieldworkHistoryId) ?? fieldworkHistories[0];
+  const activeDigFind =
+    finds.find((find) => find.id === selectedFindId && find.locationId === excavationFocus && !findState[find.id]?.recovered) ??
+    finds.find((find) => find.locationId === excavationFocus && !findState[find.id]?.recovered) ??
+    selectedFind;
+  const activeDigState = findState[activeDigFind.id];
   const coreComplete =
     recoveredFinds.length >= 11 &&
     joinedPairs.size >= 2 &&
     groupedCount >= 8 &&
     placedCount >= 4;
+  const hasCompletedMainLoopNow = hasCompletedMainLoop || coreComplete;
+  const unlockedScreens = useMemo(
+    () => unlockedScreensForState(findState, placements, hasCompletedMainLoopNow),
+    [findState, hasCompletedMainLoopNow, placements],
+  );
+  const tutorialStep = useMemo(
+    () => tutorialStepForState(findState, placements, hasCompletedMainLoopNow),
+    [findState, hasCompletedMainLoopNow, placements],
+  );
 
-  const recommendedTool: Tool = selectedFind.fragile && !selectedState.stabilized ? 'stabilize' : selectedState.exposed < 70 ? 'brush' : selectedState.recovered ? 'light' : 'lift';
+  const recommendedTool: Tool = activeDigFind.fragile && !activeDigState.stabilized ? 'stabilize' : activeDigState.exposed < 70 ? 'brush' : activeDigState.recovered ? 'light' : 'lift';
+  const availableTools = useMemo<Tool[]>(() => {
+    if (screen !== 'excavation') return [];
+    const toolSet = new Set<Tool>(['brush']);
+    if (activeDigState.exposed > 35 || tutorialStep === 'freePlay') toolSet.add('pick');
+    if (activeDigFind.fragile && !activeDigState.stabilized) toolSet.add('stabilize');
+    if (activeDigState.exposed >= 70 && !activeDigState.recovered) toolSet.add('lift');
+    return tools.map((tool) => tool.id).filter((tool) => toolSet.has(tool));
+  }, [activeDigFind.fragile, activeDigState.exposed, activeDigState.recovered, activeDigState.stabilized, screen, tutorialStep]);
+  const currentTool = availableTools.includes(activeTool) ? activeTool : availableTools[0] ?? activeTool;
+  const visibleScreens = useMemo(
+    () => [
+      ...unlockedScreens.filter((item) => item !== 'survey' && item !== 'fieldwork'),
+      ...unlockedScreens.filter((item) => item === 'survey' || item === 'fieldwork'),
+    ],
+    [unlockedScreens],
+  );
+  const hasLookedAtFirstClue = findState['1']?.cleaned > 0;
+  const nextScreen =
+    tutorialStep === 'firstLook' && !hasLookedAtFirstClue
+      ? 'examination'
+      : tutorialStep === 'firstLook'
+        ? 'excavation'
+      : tutorialStep === 'firstMatch'
+        ? 'joins'
+        : tutorialStep === 'firstBuild'
+          ? 'reconstruction'
+          : tutorialStep === 'freePlay'
+            ? 'interpretation'
+            : 'excavation';
+  const nextActionLabel =
+    tutorialStep === 'firstBrush'
+      ? 'Brush the clue'
+      : tutorialStep === 'firstLift'
+        ? 'Pick it up'
+      : tutorialStep === 'firstLook' && !hasLookedAtFirstClue
+        ? 'Look closer'
+        : tutorialStep === 'firstLook'
+          ? 'Find another piece'
+          : tutorialStep === 'firstMatch'
+            ? 'Match pieces'
+            : tutorialStep === 'firstBuild'
+              ? 'Build the room'
+              : 'Choose the story';
+
+  function followNextAction() {
+    if (tutorialStep === 'firstBrush') {
+      setActiveTool('brush');
+      setScreen('excavation');
+      return;
+    }
+    if (tutorialStep === 'firstLift') {
+      setActiveTool('lift');
+      setScreen('excavation');
+      return;
+    }
+    setScreen(nextScreen);
+  }
+
+  useEffect(() => {
+    if (!hydrated) return;
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        screen: unlockedScreens.includes(screen) ? screen : unlockedScreens[0] ?? 'excavation',
+        mode,
+        activeTool: currentTool,
+        selectedFindId,
+        excavationFocus,
+        guidance,
+        findState,
+        placements,
+        chosenInterpretation,
+        soundEnabled,
+        fieldworkHistoryId,
+        unlockedScreens,
+        tutorialStep,
+        hasCompletedMainLoop: hasCompletedMainLoopNow,
+      }),
+    );
+  }, [chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, mode, placements, screen, selectedFindId, soundEnabled, tutorialStep, unlockedScreens]);
 
   function updateFind(id: string, patch: Partial<FindState>) {
     setFindState((current) => ({
@@ -969,12 +1091,12 @@ export default function Home() {
       find.locationId === 'threshold' ||
       find.locationId === 'collapse';
     setSelectedFindId(find.id);
-    if (activeTool === 'brush' || activeTool === 'pick') {
-      const amount = activeTool === 'brush' ? 20 : compactContext ? 34 : 26;
+    if (currentTool === 'brush' || currentTool === 'pick') {
+      const amount = currentTool === 'brush' ? 20 : compactContext ? 34 : 26;
       const riskPenalty =
-        activeTool === 'pick' && find.fragile && !state.stabilized
+        currentTool === 'pick' && find.fragile && !state.stabilized
           ? 18
-          : activeTool === 'pick' && !compactContext && state.exposed > 45
+          : currentTool === 'pick' && !compactContext && state.exposed > 45
             ? 8
             : 0;
       const observations = riskPenalty
@@ -985,12 +1107,14 @@ export default function Home() {
         contextQuality: clamp(state.contextQuality - riskPenalty),
         observations,
       });
-      playCue(activeTool);
+      playCue(currentTool);
       setGuidance(
         state.exposed + amount >= 70
-          ? `${find.name}: ready to lift.`
-          : activeTool === 'brush'
-            ? 'Gentle pass. The edge is clearer.'
+          ? 'Ready. Pick it up.'
+          : currentTool === 'brush'
+            ? tutorialStep === 'firstBrush'
+              ? 'Edge revealed. Brush a little more.'
+              : 'Gentle pass. The edge is clearer.'
             : compactContext
               ? 'Clean tap. Packed soil gives way.'
               : riskPenalty
@@ -999,17 +1123,17 @@ export default function Home() {
       );
       return;
     }
-    if (activeTool === 'stabilize') {
+    if (currentTool === 'stabilize') {
       updateFind(find.id, {
         stabilized: true,
         contextQuality: Math.max(state.contextQuality, 92),
-        observations: [...new Set([...state.observations, 'Stabilized before lifting'])],
+        observations: [...new Set([...state.observations, 'Protected before pickup'])],
       });
       playCue('stabilize');
       setGuidance(`${find.name}: fragile trace protected.`);
       return;
     }
-    if (activeTool === 'lift') {
+    if (currentTool === 'lift') {
       if (state.exposed < 70) {
         playCue('blocked');
         setGuidance('Not yet. Brush until the edge is ready.');
@@ -1022,15 +1146,15 @@ export default function Home() {
           observations: [...new Set([...state.observations, 'Recovered with reduced contextual certainty'])],
         });
         playCue('blocked');
-        setGuidance(`${find.name} lifted, but the fragile edge lost clarity.`);
+        setGuidance(`${find.name} was picked up, but the fragile edge lost clarity.`);
         return;
       }
       updateFind(find.id, { recovered: true, observations: [...new Set([...state.observations, find.clue])] });
       playCue('lift');
-      setGuidance(`${find.name} is in your tray.`);
+      setGuidance(find.id === '1' ? "Nice. Let's look at it." : `${find.name} is in your tray.`);
       return;
     }
-    if (activeTool === 'light') {
+    if (currentTool === 'light') {
       updateFind(find.id, {
         cleaned: clamp(state.cleaned + 34),
         observations: [...new Set([...state.observations, find.clue])],
@@ -1040,7 +1164,7 @@ export default function Home() {
       setScreen('examination');
       return;
     }
-    if (activeTool === 'join') {
+    if (currentTool === 'join') {
       if (!state.recovered) {
         playCue('blocked');
         setGuidance('Pick it up first, then try matching it.');
@@ -1144,13 +1268,18 @@ export default function Home() {
         mode,
         activeTool,
         selectedFindId,
-          findState,
-          placements,
-          chosenInterpretation,
-          soundEnabled,
-          fieldworkHistoryId,
-        }),
-      );
+        excavationFocus,
+        guidance,
+        findState,
+        placements,
+        chosenInterpretation,
+        soundEnabled,
+        fieldworkHistoryId,
+        unlockedScreens,
+        tutorialStep,
+        hasCompletedMainLoop: hasCompletedMainLoopNow,
+      }),
+    );
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1600);
   }
@@ -1173,7 +1302,7 @@ export default function Home() {
     setPlacements({});
     setChosenInterpretation('B');
     setScreen('excavation');
-    setGuidance('Back to the main Riverbend dig.');
+    setGuidance('Something is peeking through by the hearth. Brush it gently.');
     playCue('place');
   }
 
@@ -1209,8 +1338,8 @@ export default function Home() {
 
     register({
       name: 'practice_evidence_tray',
-      title: 'Practice tray',
-      description: 'Recover a starter set for matching, grouping, and building.',
+      title: 'Skip to test set',
+      description: 'Recover a starter set for testing matching, grouping, and building.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       execute: () => {
@@ -1265,6 +1394,7 @@ export default function Home() {
           throw new Error('interpretationId must be A, B, or C.');
         }
         setChosenInterpretation(value);
+        if (placedCount > 0) setHasCompletedMainLoop(true);
         setScreen('interpretation');
         return { chosen: value };
       },
@@ -1294,6 +1424,7 @@ export default function Home() {
     chosenScore.label,
     mode,
     recoveredFinds.length,
+    placedCount,
     screen,
     selectedFind.name,
     sliceProgress,
@@ -1323,35 +1454,44 @@ export default function Home() {
             <div className="hidden w-40 sm:block">
               <Progress value={clamp(sliceProgress)} aria-label="Site progress" />
             </div>
-            <Button variant="outline" size="sm" onClick={recoverStarterSet}>
-              <Sparkles aria-hidden="true" />
-              Practice tray
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label={soundEnabled ? 'Turn sound off' : 'Turn sound on'}
-              onClick={() => setSoundEnabled((current) => !current)}
-            >
-              {soundEnabled ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}
-            </Button>
-            <Button size="sm" onClick={saveNow}>
-              <Save aria-hidden="true" />
-              {saved ? 'Saved' : 'Save'}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="Menu" />}>
+                <Menu aria-hidden="true" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Game Menu</DropdownMenuLabel>
+                <DropdownMenuItem onClick={saveNow}>
+                  <Save aria-hidden="true" />
+                  {saved ? 'Saved' : 'Save'}
+                </DropdownMenuItem>
+                <DropdownMenuCheckboxItem
+                  checked={soundEnabled}
+                  onCheckedChange={(checked) => setSoundEnabled(Boolean(checked))}
+                >
+                  {soundEnabled ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}
+                  Sound
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={recoverStarterSet}>
+                  <Sparkles aria-hidden="true" />
+                  Skip to test set
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
-        <section className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[1fr_auto] lg:grid-cols-[76px_minmax(0,1fr)_330px] lg:grid-rows-1">
+        <section className={`grid min-h-0 flex-1 grid-cols-1 ${availableTools.length ? 'grid-rows-[1fr_auto] lg:grid-cols-[76px_minmax(0,1fr)_330px]' : 'grid-rows-[1fr] lg:grid-cols-[minmax(0,1fr)_330px]'} lg:grid-rows-1`}>
           <ToolTray
-            activeTool={activeTool}
+            activeTool={currentTool}
             recommendedTool={recommendedTool}
+            availableTools={availableTools}
             onSelect={setActiveTool}
           />
 
           <div className="min-h-0 overflow-hidden p-2 sm:p-3">
             <Tabs value={screen} onValueChange={(value) => setScreen(value as Screen)} className="h-full">
-              <TabsList className="mb-2 grid h-auto w-full grid-cols-4 gap-1 bg-muted/70 p-1 sm:grid-cols-7">
+              <TabsList className="mb-2 flex h-auto w-full gap-1 overflow-x-auto bg-muted/70 p-1">
                 {[
                   { value: 'survey', label: 'Map', Icon: Map },
                   { value: 'excavation', label: 'Dig', Icon: Brush },
@@ -1360,15 +1500,15 @@ export default function Home() {
                   { value: 'reconstruction', label: 'Build', Icon: Layers3 },
                   { value: 'interpretation', label: 'Story', Icon: Lightbulb },
                   { value: 'fieldwork', label: 'Practice', Icon: Archive },
-                ].map(({ value, label, Icon }) => (
+                ].filter(({ value }) => visibleScreens.includes(value as Screen)).map(({ value, label, Icon }) => (
                   <TabsTrigger
                     key={value}
                     value={value}
                     aria-label={label}
-                    className="h-9 gap-1 px-1 text-xs sm:text-sm"
+                    className="h-9 min-w-20 gap-1 px-2 text-xs sm:text-sm"
                   >
                     <Icon className="size-4" aria-hidden="true" />
-                    <span className="hidden sm:inline">{label}</span>
+                    <span>{label}</span>
                   </TabsTrigger>
                 ))}
               </TabsList>
@@ -1397,12 +1537,13 @@ export default function Home() {
                   mode={mode}
                   fieldworkLabel={activeFieldworkHistory.scenarioLabel}
                   title="Dig here"
-                  description={`${toolById(activeTool).label} selected. Only this spot is active for now.`}
+                  description={`${toolById(currentTool).label} selected. Only this spot is active for now.`}
                 >
                   <FindHotspots
                     mode={mode}
-                    activeTool={activeTool}
+                    activeTool={currentTool}
                     excavationFocus={excavationFocus}
+                    tutorialStep={tutorialStep}
                     findState={findState}
                     selectedFindId={selectedFindId}
                     onAct={actOnFind}
@@ -1421,7 +1562,7 @@ export default function Home() {
                       observations: [...new Set([...selectedState.observations, selectedFind.clue])],
                     });
                     playCue('clean');
-                    setGuidance(selectedFind.clue);
+                    setGuidance(selectedFind.id === '1' ? 'A dark line continues. Find another piece by the hearth.' : selectedFind.clue);
                   }}
                   onGroup={groupFind}
                   onJoin={() => {
@@ -1461,7 +1602,10 @@ export default function Home() {
                   scores={interpretationScores}
                   chosen={chosenInterpretation}
                   coreComplete={coreComplete}
-                  onChoose={setChosenInterpretation}
+                  onChoose={(id) => {
+                    setChosenInterpretation(id);
+                    if (placedCount > 0) setHasCompletedMainLoop(true);
+                  }}
                 />
               </TabsContent>
 
@@ -1484,8 +1628,10 @@ export default function Home() {
             recoveredFinds={recoveredFinds}
             chosenScore={chosenScore}
             coreComplete={coreComplete}
+            showCurrentStory={unlockedScreens.includes('interpretation')}
+            nextActionLabel={nextActionLabel}
+            onNextAction={followNextAction}
             setSelectedFindId={setSelectedFindId}
-            setScreen={setScreen}
           />
           <MobileContextDrawer
             selectedFind={selectedFind}
@@ -1493,8 +1639,10 @@ export default function Home() {
             recoveredFinds={recoveredFinds}
             chosenScore={chosenScore}
             coreComplete={coreComplete}
+            showCurrentStory={unlockedScreens.includes('interpretation')}
+            nextActionLabel={nextActionLabel}
+            onNextAction={followNextAction}
             setSelectedFindId={setSelectedFindId}
-            setScreen={setScreen}
           />
         </section>
       </div>
@@ -1505,17 +1653,21 @@ export default function Home() {
 function ToolTray({
   activeTool,
   recommendedTool,
+  availableTools,
   onSelect,
 }: {
   activeTool: Tool;
   recommendedTool: Tool;
+  availableTools: Tool[];
   onSelect: (tool: Tool) => void;
 }) {
   const active = toolById(activeTool);
   const recommended = toolById(recommendedTool);
+  const visibleTools = tools.filter((tool) => availableTools.includes(tool.id));
+  if (!visibleTools.length) return null;
   return (
     <aside className="order-2 flex min-h-[96px] items-center gap-2 overflow-x-auto border-t border-border bg-card px-2 py-2 lg:order-none lg:min-h-0 lg:flex-col lg:justify-start lg:border-r lg:border-t-0 lg:px-2 lg:pt-3">
-      {tools.map((tool) => {
+      {visibleTools.map((tool) => {
         const Icon = tool.icon;
         const isActive = activeTool === tool.id;
         const isRecommended = recommendedTool === tool.id && !isActive;
@@ -1548,7 +1700,7 @@ function ToolTray({
       <div className="min-w-[220px] rounded-md border border-border bg-background px-3 py-2 text-xs lg:min-w-0">
         <p className="font-semibold">{active.label}</p>
         <p className="mt-0.5 text-muted-foreground">{active.bestUse}</p>
-        {activeTool !== recommendedTool ? (
+        {availableTools.includes(recommendedTool) && activeTool !== recommendedTool ? (
           <p className="mt-1 text-sky-800">Try {recommended.label}: {recommended.hint}</p>
         ) : null}
       </div>
@@ -1622,6 +1774,7 @@ function FindHotspots({
   mode,
   activeTool,
   excavationFocus,
+  tutorialStep,
   findState,
   selectedFindId,
   onAct,
@@ -1629,6 +1782,7 @@ function FindHotspots({
   mode: 'expedition' | 'fieldwork';
   activeTool: Tool;
   excavationFocus: ExcavationFocus;
+  tutorialStep: TutorialStep;
   findState: Record<string, FindState>;
   selectedFindId: string;
   onAct: (find: Find) => void;
@@ -1661,6 +1815,7 @@ function FindHotspots({
           (find.locationId === excavationFocus && (state.exposed > 0 || state.recovered));
         const certaintyRisk = state.contextQuality < 82;
         const clearingScale = 1.35 - state.exposed / 120;
+        const tutorialTarget = tutorialStep !== 'freePlay' && find.id === '1' && !state.recovered;
         if (!visible) return null;
         return (
           <button
@@ -1680,7 +1835,9 @@ function FindHotspots({
             }}
             aria-label={`${find.name}, ${state.exposed}% clear, ${state.recovered ? 'found' : 'in soil'}`}
             disabled={false}
-            className={`absolute z-10 flex size-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-xs font-bold shadow-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:size-10 ${
+            className={`absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-xs font-bold shadow-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
+              tutorialTarget ? 'size-14 animate-pulse sm:size-16' : 'size-9 sm:size-10'
+            } ${
               state.recovered
                 ? 'border-emerald-100 bg-emerald-700 text-white opacity-80'
                 : selectedFindId === find.id
@@ -1709,6 +1866,11 @@ function FindHotspots({
               />
             ) : null}
             {state.recovered ? <CheckCircle2 className="size-5" aria-hidden="true" /> : find.id}
+            {tutorialTarget ? (
+              <span className="absolute left-1/2 top-full mt-2 min-w-28 -translate-x-1/2 rounded-md border border-white/75 bg-black/65 px-2 py-1 text-center text-xs text-white">
+                {state.exposed >= 70 ? 'Pick it up' : 'Brush here'}
+              </span>
+            ) : null}
             <span
               className="absolute -bottom-1 left-1/2 h-1 -translate-x-1/2 rounded-full bg-white/90"
               style={{ width: `${Math.max(8, state.exposed / 2)}%` }}
@@ -1805,7 +1967,7 @@ function ExaminationTable({
         </div>
         <Button className="mt-4 w-full" onClick={onClean}>
           <Eye aria-hidden="true" />
-          Light and turn
+          Shine lamp
         </Button>
         <details className="mt-4 rounded-md border border-border bg-muted p-3 text-sm">
           <summary className="cursor-pointer font-semibold">Field notes</summary>
@@ -1964,7 +2126,7 @@ function JoinWorkspace({
               </div>
             </>
           ) : (
-            <p className="mt-2 text-sm text-muted-foreground">Lift a clue before grouping it.</p>
+            <p className="mt-2 text-sm text-muted-foreground">Pick up a clue before grouping it.</p>
           )}
           </div>
       </div>
@@ -2294,16 +2456,20 @@ function EvidencePanel({
   recoveredFinds,
   chosenScore,
   coreComplete,
+  showCurrentStory,
+  nextActionLabel,
+  onNextAction,
   setSelectedFindId,
-  setScreen,
 }: {
   selectedFind: Find;
   selectedState: FindState;
   recoveredFinds: Find[];
   chosenScore: Interpretation & { confidence: Confidence; score: number };
   coreComplete: boolean;
+  showCurrentStory: boolean;
+  nextActionLabel: string;
+  onNextAction: () => void;
   setSelectedFindId: (id: string) => void;
-  setScreen: (screen: Screen) => void;
 }) {
   return (
     <aside className="hidden min-h-0 border-l border-border bg-card lg:block">
@@ -2314,8 +2480,10 @@ function EvidencePanel({
           recoveredFinds={recoveredFinds}
           chosenScore={chosenScore}
           coreComplete={coreComplete}
+          showCurrentStory={showCurrentStory}
+          nextActionLabel={nextActionLabel}
+          onNextAction={onNextAction}
           setSelectedFindId={setSelectedFindId}
-          setScreen={setScreen}
         />
       </div>
     </aside>
@@ -2328,16 +2496,20 @@ function MobileContextDrawer({
   recoveredFinds,
   chosenScore,
   coreComplete,
+  showCurrentStory,
+  nextActionLabel,
+  onNextAction,
   setSelectedFindId,
-  setScreen,
 }: {
   selectedFind: Find;
   selectedState: FindState;
   recoveredFinds: Find[];
   chosenScore: Interpretation & { confidence: Confidence; score: number };
   coreComplete: boolean;
+  showCurrentStory: boolean;
+  nextActionLabel: string;
+  onNextAction: () => void;
   setSelectedFindId: (id: string) => void;
-  setScreen: (screen: Screen) => void;
 }) {
   return (
     <div className="pointer-events-none fixed inset-x-3 bottom-[88px] z-40 lg:hidden">
@@ -2354,7 +2526,7 @@ function MobileContextDrawer({
           <DrawerHeader>
             <DrawerTitle>Next Move</DrawerTitle>
             <DrawerDescription>
-              Current clue, useful action, confidence, and recovered finds.
+              Current clue, useful action, and your tray.
             </DrawerDescription>
           </DrawerHeader>
           <div className="min-h-0 flex-1 overflow-auto">
@@ -2364,8 +2536,10 @@ function MobileContextDrawer({
               recoveredFinds={recoveredFinds}
               chosenScore={chosenScore}
               coreComplete={coreComplete}
+              showCurrentStory={showCurrentStory}
+              nextActionLabel={nextActionLabel}
+              onNextAction={onNextAction}
               setSelectedFindId={setSelectedFindId}
-              setScreen={setScreen}
             />
           </div>
         </DrawerContent>
@@ -2380,16 +2554,20 @@ function ContextContent({
   recoveredFinds,
   chosenScore,
   coreComplete,
+  showCurrentStory,
+  nextActionLabel,
+  onNextAction,
   setSelectedFindId,
-  setScreen,
 }: {
   selectedFind: Find;
   selectedState: FindState;
   recoveredFinds: Find[];
   chosenScore: Interpretation & { confidence: Confidence; score: number };
   coreComplete: boolean;
+  showCurrentStory: boolean;
+  nextActionLabel: string;
+  onNextAction: () => void;
   setSelectedFindId: (id: string) => void;
-  setScreen: (screen: Screen) => void;
 }) {
   return (
     <>
@@ -2405,9 +2583,9 @@ function ContextContent({
             {selectedState.recovered
               ? joinHintFromRecovered(selectedFind, recoveredFinds)
               : selectedState.exposed >= 70
-                ? 'Ready to lift.'
+                ? 'Ready to pick up.'
                 : selectedFind.fragile && !selectedState.stabilized
-                  ? 'Protect it before lifting.'
+                  ? 'Protect it before picking it up.'
                   : 'Brush until the edge is clear.'}
           </p>
           <div className="mt-3 flex flex-wrap gap-1">
@@ -2418,33 +2596,32 @@ function ContextContent({
             ))}
           </div>
         </article>
-        <div className="mt-3 rounded-md bg-muted p-3">
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Current Story</p>
-          <p className="mt-1 text-sm font-medium">{chosenScore.label}</p>
-          <p className="text-xs text-muted-foreground">{chosenScore.confidence}</p>
-        </div>
+        {showCurrentStory ? (
+          <div className="mt-3 rounded-md bg-muted p-3">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Current Story</p>
+            <p className="mt-1 text-sm font-medium">{chosenScore.label}</p>
+            <p className="text-xs text-muted-foreground">{chosenScore.confidence}</p>
+          </div>
+        ) : null}
         {coreComplete ? (
           <div className="mt-3 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">
             Site assessment ready. Confidence is supported, but the bead remains unresolved.
           </div>
         ) : null}
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {[
-            ['examination', 'Look'],
-            ['joins', 'Match'],
-            ['reconstruction', 'Build'],
-            ['interpretation', 'Story'],
-          ].map(([target, label]) => (
-            <Button key={target} variant="outline" size="sm" onClick={() => setScreen(target as Screen)}>
-              {label}
-            </Button>
-          ))}
-        </div>
+        <Button className="mt-3 w-full" onClick={onNextAction}>
+          {nextActionLabel}
+        </Button>
       </section>
       <section className="min-h-0 flex-1 overflow-auto p-4">
         <h3 className="text-sm font-semibold">Your Tray</h3>
         <div className="mt-3 space-y-2">
-          {recoveredFinds.length ? recoveredFinds.map((find) => (
+          {recoveredFinds.length < 3 ? (
+            <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+              {recoveredFinds.length
+                ? `${recoveredFinds.length} clue${recoveredFinds.length === 1 ? '' : 's'} found. The tray opens after three.`
+                : 'Pick up cleared clues to begin your tray.'}
+            </p>
+          ) : recoveredFinds.map((find) => (
             <button
               key={find.id}
               type="button"
@@ -2454,11 +2631,7 @@ function ContextContent({
               <span className="block text-sm font-medium">#{find.id} {find.name}</span>
               <span className="text-xs text-muted-foreground">{primaryGroups(find).map(groupLabel).join(', ')}</span>
             </button>
-          )) : (
-            <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
-              Pick up cleared clues to begin your tray.
-            </p>
-          )}
+          ))}
         </div>
       </section>
     </>

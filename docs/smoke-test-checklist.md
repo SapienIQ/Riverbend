@@ -2,26 +2,22 @@
 
 Use this checklist after each milestone update. The player should be able to complete it without typing notes.
 
-1. Load the app and confirm the playable field is visible without page scrolling.
-2. Select each tool and confirm the selected state differs from the recommended state.
-3. Hover or focus each tool and confirm a concise tooltip explains what it does.
-4. Confirm the selected/recommended tool helper says when to use the tool.
-5. In Map, choose an excavation area and confirm guidance updates with game-like feedback.
-6. In Excavation, drag the brush across nearby find contexts and confirm soil masks visibly clear.
-7. Switch to the fine pick and confirm compact contexts clear faster while risky use can reduce certainty.
-8. Stabilize a fragile find and confirm preservation feedback appears before lifting.
-9. Pick up a cleared clue and confirm it moves to the tray.
-10. Use Practice tray to recover the representative set.
-11. Open Look and confirm it shows only What you can see, What it fits, and What it might mean.
-12. Confirm inspection shows no more than three primary clue observations before optional Field notes.
-13. Clean/turn the selected find until authored close-up detail becomes readable.
-14. Toggle sound and confirm brushing, lifting, matching, and building cues respect the setting.
-15. Open Match, drag and rotate a recovered pair toward the pale outline, then confirm a snap.
-16. Confirm grouping shows chips only for the selected find.
-17. Open Build and confirm missing requirements read as objectives such as finding one more clue or matching two pieces.
-18. Confirm placed reconstruction zones render staged room states: hearth, bench, threshold, pit, and collapse.
-19. Open Story and confirm each explanation shows brief reasons and only a few contradictions.
-20. Start each Practice setup and confirm the selected label, objective, and starter tray change while using the same evidence logic.
-21. Save, reload, and confirm the restored state is not overwritten by the default opening state.
-22. Check desktop, tablet, and mobile widths for no required browser-page scrolling during active play.
-23. On mobile, open the Context drawer and confirm it focuses on current clue, next move, confidence, and quick navigation.
+1. Clear local save, load the app, and confirm the player starts in Dig with only the Dig step visible.
+2. Confirm the first clue marker is large, gently pulsing, and labeled with the next action.
+3. Confirm only Brush is available at the very start, with a concise tooltip and helper text.
+4. Brush the first clue and confirm the guidance says the edge is revealed and to brush a little more.
+5. Confirm Pick appears only after brushing has begun, and Pick Up appears only once the clue is ready.
+6. Pick up the first clue and confirm Look unlocks and the main next-action button says Look closer.
+7. Use Shine lamp in Look and confirm the next-action button sends the player back to Dig for another piece.
+8. Find the second compatible piece and confirm Match unlocks only after both pieces are found.
+9. Open Match, drag and rotate a recovered pair toward the pale outline, then confirm a snap.
+10. Group a clue and confirm Build unlocks only after the group exists.
+11. Place a supported room state and confirm Story unlocks only after something has been built.
+12. Choose a story and confirm Practice unlocks after the first loop is complete.
+13. Confirm Save, Sound, and Skip to test set live inside the menu and are not competing with the main action.
+14. Confirm the tray stays collapsed until at least three clues are found.
+15. Confirm inspection shows no more than three primary clue observations before optional Field notes.
+16. Confirm placed reconstruction zones render staged room states: hearth, bench, threshold, pit, and collapse.
+17. Save, reload, and confirm restored progress is not overwritten by the default opening state.
+18. Check desktop, tablet, and mobile widths for no required browser-page scrolling during active play.
+19. On mobile, open the Next drawer and confirm it focuses on current clue, one useful action, confidence, and the tray.
