@@ -50,6 +50,7 @@ type Screen =
   | 'fieldwork';
 type Tool = 'brush' | 'pick' | 'stabilize' | 'lift' | 'light' | 'join';
 type SoundCue = 'brush' | 'pick' | 'stabilize' | 'lift' | 'join' | 'place' | 'blocked' | 'clean';
+type ExcavationFocus = 'hearth' | 'bench' | 'threshold' | 'pit' | 'collapse' | 'north';
 type Confidence =
   | 'Confirmed'
   | 'Strongly supported'
@@ -101,7 +102,7 @@ type FieldworkHistory = {
   name: string;
   objective: string;
   detail: string;
-  seedLabel: string;
+  scenarioLabel: string;
   startingFinds: string[];
 };
 
@@ -125,12 +126,12 @@ const tools: {
   hint: string;
   bestUse: string;
 }[] = [
-  { id: 'brush', label: 'Brush', icon: Brush, hint: 'Gentle and safe. Clears loose soil slowly.', bestUse: 'Best when a clue is just appearing or looks fragile.' },
-  { id: 'pick', label: 'Fine pick', icon: Hammer, hint: 'Fast on hard-packed edges. Risky on loose or fragile traces.', bestUse: 'Best for pit cuts, threshold packing, and collapse debris.' },
-  { id: 'stabilize', label: 'Stabilize', icon: ShieldCheck, hint: 'Locks fragile clues in place before you lift.', bestUse: 'Best when the selected clue shows a safe marker or fragile warning.' },
-  { id: 'lift', label: 'Lift', icon: Hand, hint: 'Collects a clue once enough soil is cleared.', bestUse: 'Best when the surface says ready to lift.' },
-  { id: 'light', label: 'Raking light', icon: SunMedium, hint: 'Reveals soot, stain, fibers, polish, and break lines.', bestUse: 'Best at the inspection table after a find is recovered.' },
-  { id: 'join', label: 'Join', icon: Rotate3D, hint: 'Sends matching fragments to the sherd bench.', bestUse: 'Best when two recovered pieces seem to share an edge.' },
+  { id: 'brush', label: 'Brush', icon: Brush, hint: 'Gentle and safe. Clears dirt slowly.', bestUse: 'Best when something is just peeking out.' },
+  { id: 'pick', label: 'Pick', icon: Hammer, hint: 'Fast on packed dirt. Risky on delicate clues.', bestUse: 'Best for hard edges and packed debris.' },
+  { id: 'stabilize', label: 'Protect', icon: ShieldCheck, hint: 'Keeps delicate clues from crumbling.', bestUse: 'Best when the selected clue warns you it is fragile.' },
+  { id: 'lift', label: 'Pick Up', icon: Hand, hint: 'Adds a cleared clue to your tray.', bestUse: 'Best when the clue says ready.' },
+  { id: 'light', label: 'Lamp', icon: SunMedium, hint: 'Shows hidden marks, colors, and edges.', bestUse: 'Best after a clue is in your tray.' },
+  { id: 'join', label: 'Match', icon: Rotate3D, hint: 'Opens the table for fitting pieces together.', bestUse: 'Best when two pieces look related.' },
 ];
 
 const finds: Find[] = [
@@ -187,7 +188,7 @@ const finds: Find[] = [
   },
   {
     id: '4',
-    name: 'Charred seed cluster',
+    name: 'Charred grain cluster',
     material: 'Botanical',
     use: 'Food residue',
     location: 'Hearth ash',
@@ -435,7 +436,7 @@ const finds: Find[] = [
   },
   {
     id: '19',
-    name: 'Ceramic packing sherd',
+    name: 'Ceramic packing fragment',
     material: 'Local ceramic',
     use: 'Threshold packing',
     location: 'Doorway',
@@ -518,7 +519,7 @@ const finds: Find[] = [
   },
   {
     id: '24',
-    name: 'Intrusive glazed sherd',
+    name: 'Intrusive glazed fragment',
     material: 'Ceramic',
     use: 'Later vessel',
     location: 'Pit fill',
@@ -585,7 +586,7 @@ const interpretations: Interpretation[] = [
     id: 'C',
     label: 'Later disturbance created a false pattern',
     claim: 'The apparent closure pattern is partly misleading because later intrusion mixed earlier materials.',
-    evidence: ['Pit cut', 'Intrusive glazed sherd', 'Displaced pigment cup base', 'Moved pot base'],
+    evidence: ['Pit cut', 'Intrusive glazed fragment', 'Displaced pigment cup base', 'Moved pot base'],
     uncertainty: 'Many relationships remain spatially coherent outside the disturbed area.',
   },
 ];
@@ -601,26 +602,26 @@ const reconstructionZones = [
 const fieldworkHistories: FieldworkHistory[] = [
   {
     id: 'threshold',
-    name: 'Threshold Closure',
-    objective: 'Test whether repair, bead placement, and closure fittings belong to one final act.',
-    detail: 'Fragile threshold traces expose early, while storage evidence is scattered under collapse.',
-    seedLabel: 'Closure-focused seed',
+    name: 'Doorway Ending',
+    objective: 'Check whether the repaired doorway, small bead, and bent fitting were one goodbye.',
+    detail: 'Delicate doorway clues appear early, while storage pieces are scattered under the fallen roof.',
+    scenarioLabel: 'Doorway ending',
     startingFinds: ['16', '17', '18', '19', '20', '21', '22', '7', '8', '23', '24'],
   },
   {
     id: 'intrusion',
-    name: 'Pit Intrusion',
-    objective: 'Separate later disturbance from the textile and cooking material it dragged together.',
-    detail: 'The pit is easier to spot, while displaced joins carry lower context certainty.',
-    seedLabel: 'Disturbance-focused seed',
+    name: 'Messy Corner',
+    objective: 'Work out what the messy corner dragged out of place.',
+    detail: 'The messy corner is easier to spot, while moved pieces are less certain.',
+    scenarioLabel: 'Messy corner',
     startingFinds: ['3', '13', '14', '15', '23', '24', '1', '2', '9', '10', '11'],
   },
   {
     id: 'collapse',
-    name: 'Collapse Scatter',
-    objective: 'Rebuild the final roof-fall pattern before deciding whether abandonment was sudden.',
-    detail: 'Collapsed fixtures and crushed storage become prominent, but the bead remains ambiguous.',
-    seedLabel: 'Collapse-focused seed',
+    name: 'Fallen Roof',
+    objective: 'Fit the fallen roof clues before deciding if people left in a hurry.',
+    detail: 'Fallen fixtures and crushed storage become prominent, but the bead remains ambiguous.',
+    scenarioLabel: 'Fallen roof',
     startingFinds: ['7', '8', '21', '22', '25', '16', '17', '1', '2', '4', '20'],
   },
 ];
@@ -763,24 +764,24 @@ function meaningForFind(find: Find) {
 }
 
 function joinHint(find: Find, findState: Record<string, FindState>) {
-  if (!find.joins.length) return 'No physical join. Use it as an activity clue.';
+  if (!find.joins.length) return 'No matching edge. Use it as a story clue.';
   const recovered = find.joins
     .map((id) => finds.find((item) => item.id === id))
     .filter((item): item is Find => item !== undefined && findState[item.id]?.recovered);
-  if (recovered.length) return `Try the seam with ${recovered.map((item) => `#${item.id}`).join(', ')}.`;
-  return `A matching edge exists, but the other piece is still in the soil.`;
+  if (recovered.length) return `Try matching it with ${recovered.map((item) => `#${item.id}`).join(', ')}.`;
+  return `The matching piece is still in the dirt.`;
 }
 
 function joinHintFromRecovered(find: Find, recoveredFinds: Find[]) {
-  if (!find.joins.length) return 'No seam to test. Use it as an activity clue.';
+  if (!find.joins.length) return 'No broken edge to match. Use it as a story clue.';
   const recoveredIds = new Set(recoveredFinds.map((item) => item.id));
   const recovered = find.joins.filter((id) => recoveredIds.has(id));
-  if (recovered.length) return `Try the seam with #${recovered[0]}.`;
-  return 'The matching edge is still buried.';
+  if (recovered.length) return `Try matching it with #${recovered[0]}.`;
+  return 'The matching piece is still buried.';
 }
 
 function reconstructionPrompt(zone: (typeof reconstructionZones)[number], groupedMatches: number, physicallyAnchored: boolean) {
-  if (!physicallyAnchored) return 'Confirm a physical join';
+  if (!physicallyAnchored) return 'Fit two pieces first';
   const missing = Math.max(0, zone.required - groupedMatches);
   if (!missing) return 'Ready';
   return `Find ${missing === 1 ? 'one more' : `${missing} more`} ${groupLabel(zone.groups[0]).toLowerCase()} clue${missing === 1 ? '' : 's'}`;
@@ -801,6 +802,7 @@ export default function Home() {
   const [mode, setMode] = useState<'expedition' | 'fieldwork'>('expedition');
   const [activeTool, setActiveTool] = useState<Tool>('brush');
   const [selectedFindId, setSelectedFindId] = useState('1');
+  const [excavationFocus, setExcavationFocus] = useState<ExcavationFocus>('hearth');
   const [findState, setFindState] = useState<Record<string, FindState>>(initialFindState);
   const [placements, setPlacements] = useState<Record<string, string>>({});
   const [chosenInterpretation, setChosenInterpretation] = useState<'A' | 'B' | 'C'>('B');
@@ -824,6 +826,7 @@ export default function Home() {
           mode?: 'expedition' | 'fieldwork';
           activeTool?: Tool;
           selectedFindId?: string;
+          excavationFocus?: ExcavationFocus;
           findState?: Record<string, FindState>;
           placements?: Record<string, string>;
           chosenInterpretation?: 'A' | 'B' | 'C';
@@ -834,6 +837,7 @@ export default function Home() {
         setMode(parsed.mode ?? 'expedition');
         setActiveTool(parsed.activeTool ?? 'brush');
         setSelectedFindId(parsed.selectedFindId ?? '1');
+        setExcavationFocus(parsed.excavationFocus ?? 'hearth');
         setFindState(parsed.findState ?? initialFindState);
         setPlacements(parsed.placements ?? {});
         setChosenInterpretation(parsed.chosenInterpretation ?? 'B');
@@ -857,6 +861,7 @@ export default function Home() {
         mode,
         activeTool,
         selectedFindId,
+        excavationFocus,
         findState,
         placements,
         chosenInterpretation,
@@ -864,12 +869,11 @@ export default function Home() {
         fieldworkHistoryId,
       }),
     );
-  }, [hydrated, screen, mode, activeTool, selectedFindId, findState, placements, chosenInterpretation, soundEnabled, fieldworkHistoryId]);
+  }, [hydrated, screen, mode, activeTool, selectedFindId, excavationFocus, findState, placements, chosenInterpretation, soundEnabled, fieldworkHistoryId]);
 
   const selectedFind = finds.find((find) => find.id === selectedFindId) ?? finds[0];
   const selectedState = findState[selectedFind.id];
   const recoveredFinds = finds.filter((find) => findState[find.id]?.recovered);
-  const exposedCount = finds.filter((find) => findState[find.id]?.exposed > 0).length;
   const joinedPairs = useMemo(() => {
     const pairs = new Set<string>();
     finds.forEach((find) => {
@@ -1039,7 +1043,7 @@ export default function Home() {
     if (activeTool === 'join') {
       if (!state.recovered) {
         playCue('blocked');
-        setGuidance('Lift it first, then test the seam.');
+        setGuidance('Pick it up first, then try matching it.');
         return;
       }
       setGuidance(joinHint(find, findState));
@@ -1071,7 +1075,7 @@ export default function Home() {
     setGuidance(
       mode === 'fieldwork'
         ? `${activeFieldworkHistory.name} tray is ready. ${activeFieldworkHistory.objective}`
-        : 'A starter tray is ready. Try joining a seam.',
+        : 'A practice tray is ready. Try matching two pieces.',
     );
     playCue('lift');
   }
@@ -1084,7 +1088,7 @@ export default function Home() {
     }
     const availableJoin = find.joins.find((id) => findState[id]?.recovered);
     if (!availableJoin) {
-      setGuidance('The seam wants another piece. Keep digging.');
+      setGuidance('Another piece is still missing. Keep digging.');
       playCue('blocked');
       return;
     }
@@ -1204,9 +1208,9 @@ export default function Home() {
     });
 
     register({
-      name: 'seed_representative_evidence_tray',
-      title: 'Seed evidence tray',
-      description: 'Recover a representative evidence set for joining, grouping, and reconstruction.',
+      name: 'practice_evidence_tray',
+      title: 'Practice tray',
+      description: 'Recover a starter set for matching, grouping, and building.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       execute: () => {
@@ -1233,9 +1237,9 @@ export default function Home() {
         setGuidance(
           mode === 'fieldwork'
             ? `${activeFieldworkHistory.name} tray is ready. ${activeFieldworkHistory.objective}`
-            : 'A representative tray is ready for joining, grouping, and reconstruction.',
+            : 'A practice tray is ready. Try matching two pieces.',
         );
-        return { recovered: starterIds.length, next: 'Use joins, grouping, reconstruction, or interpretation review.' };
+        return { recovered: starterIds.length, next: 'Try matching, grouping, building, or choosing a story.' };
       },
     });
 
@@ -1268,8 +1272,8 @@ export default function Home() {
 
     register({
       name: 'start_fieldwork_variation',
-      title: 'Start Fieldwork variation',
-      description: 'Switch to the authored Fieldwork variation and reset progress.',
+      title: 'Start practice variation',
+      description: 'Switch to an authored practice variation and reset progress.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       execute: () => {
@@ -1321,7 +1325,7 @@ export default function Home() {
             </div>
             <Button variant="outline" size="sm" onClick={recoverStarterSet}>
               <Sparkles aria-hidden="true" />
-              Seed tray
+              Practice tray
             </Button>
             <Button
               variant="outline"
@@ -1349,13 +1353,13 @@ export default function Home() {
             <Tabs value={screen} onValueChange={(value) => setScreen(value as Screen)} className="h-full">
               <TabsList className="mb-2 grid h-auto w-full grid-cols-4 gap-1 bg-muted/70 p-1 sm:grid-cols-7">
                 {[
-                  { value: 'survey', label: 'Survey', Icon: Map },
-                  { value: 'excavation', label: 'Excavate', Icon: Brush },
-                  { value: 'examination', label: 'Examine', Icon: Search },
-                  { value: 'joins', label: 'Join', Icon: Rotate3D },
-                  { value: 'reconstruction', label: 'Rebuild', Icon: Layers3 },
-                  { value: 'interpretation', label: 'Interpret', Icon: Lightbulb },
-                  { value: 'fieldwork', label: 'Fieldwork', Icon: Archive },
+                  { value: 'survey', label: 'Map', Icon: Map },
+                  { value: 'excavation', label: 'Dig', Icon: Brush },
+                  { value: 'examination', label: 'Look', Icon: Search },
+                  { value: 'joins', label: 'Match', Icon: Rotate3D },
+                  { value: 'reconstruction', label: 'Build', Icon: Layers3 },
+                  { value: 'interpretation', label: 'Story', Icon: Lightbulb },
+                  { value: 'fieldwork', label: 'Practice', Icon: Archive },
                 ].map(({ value, label, Icon }) => (
                   <TabsTrigger
                     key={value}
@@ -1372,13 +1376,18 @@ export default function Home() {
               <TabsContent value="survey" className="h-[calc(100%-48px)]">
                 <BoardFrame
                   mode={mode}
-                  fieldworkLabel={activeFieldworkHistory.seedLabel}
-                  title="Exterior survey"
-                  description="Read the room before disturbing it. The courtyard, threshold, hearth, bench, and pit can all be chosen as excavation priorities."
+                  fieldworkLabel={activeFieldworkHistory.scenarioLabel}
+                  title="Choose a spot"
+                  description="Pick one area to search. The game will show only that area first."
                 >
                   <SurveyOverlay onChoose={(target) => {
+                    setExcavationFocus(target.locationId);
+                    const nextFind =
+                      finds.find((find) => find.locationId === target.locationId && !findState[find.id]?.recovered) ??
+                      finds.find((find) => find.locationId === target.locationId);
+                    if (nextFind) setSelectedFindId(nextFind.id);
                     setScreen('excavation');
-                    setGuidance(`${target} selected. Start with gentle exposure and keep context intact.`);
+                    setGuidance(`${target.label}: brush first. Pick up anything that says ready.`);
                   }} />
                 </BoardFrame>
               </TabsContent>
@@ -1386,13 +1395,14 @@ export default function Home() {
               <TabsContent value="excavation" className="h-[calc(100%-48px)]">
                 <BoardFrame
                   mode={mode}
-                  fieldworkLabel={activeFieldworkHistory.seedLabel}
-                  title="Excavation area"
-                  description={`${exposedCount} find contexts visible. Active tool: ${tools.find((tool) => tool.id === activeTool)?.label}.`}
+                  fieldworkLabel={activeFieldworkHistory.scenarioLabel}
+                  title="Dig here"
+                  description={`${toolById(activeTool).label} selected. Only this spot is active for now.`}
                 >
                   <FindHotspots
                     mode={mode}
                     activeTool={activeTool}
+                    excavationFocus={excavationFocus}
                     findState={findState}
                     selectedFindId={selectedFindId}
                     onAct={actOnFind}
@@ -1433,9 +1443,9 @@ export default function Home() {
               <TabsContent value="reconstruction" className="h-[calc(100%-48px)]">
                 <BoardFrame
                   mode={mode}
-                  fieldworkLabel={activeFieldworkHistory.seedLabel}
-                  title="Reconstruction space"
-                  description="Place supported activity zones. Translucent forms show interpretation, while excavated reality remains visible beneath."
+                  fieldworkLabel={activeFieldworkHistory.scenarioLabel}
+                  title="Build the room"
+                  description="Place only the parts your clues can support."
                 >
                   <ReconstructionOverlay
                     placements={placements}
@@ -1576,7 +1586,7 @@ function BoardFrame({
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,transparent_20%,rgb(26_22_17/0.16)_100%)]" />
       {mode === 'fieldwork' ? (
         <div className="absolute right-3 top-3 z-20 rounded-md border border-amber-100 bg-amber-50/95 px-3 py-1.5 text-xs font-semibold text-amber-950">
-          {fieldworkLabel ?? 'Fieldwork seed'}
+          {fieldworkLabel ?? 'Practice setup'}
         </div>
       ) : null}
       {children}
@@ -1584,12 +1594,12 @@ function BoardFrame({
   );
 }
 
-function SurveyOverlay({ onChoose }: { onChoose: (target: string) => void }) {
+function SurveyOverlay({ onChoose }: { onChoose: (target: { label: string; locationId: ExcavationFocus }) => void }) {
   const areas = [
-    { label: 'Hearth ash', x: 36, y: 56 },
-    { label: 'Bench floor', x: 66, y: 31 },
-    { label: 'Threshold repair', x: 51, y: 84 },
-    { label: 'Later pit', x: 78, y: 48 },
+    { label: 'Hearth', locationId: 'hearth' as const, x: 36, y: 56 },
+    { label: 'Work bench', locationId: 'bench' as const, x: 66, y: 31 },
+    { label: 'Doorway', locationId: 'threshold' as const, x: 51, y: 84 },
+    { label: 'Messy corner', locationId: 'pit' as const, x: 78, y: 48 },
   ];
   return (
     <div className="absolute inset-0">
@@ -1597,7 +1607,7 @@ function SurveyOverlay({ onChoose }: { onChoose: (target: string) => void }) {
         <button
           key={area.label}
           type="button"
-          onClick={() => onChoose(area.label)}
+          onClick={() => onChoose(area)}
           className="absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-md border-2 border-white/80 bg-emerald-900/50 px-3 py-2 text-sm font-semibold text-white shadow-lg backdrop-blur-[2px] transition hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
           style={{ left: `${area.x}%`, top: `${area.y}%` }}
         >
@@ -1611,18 +1621,30 @@ function SurveyOverlay({ onChoose }: { onChoose: (target: string) => void }) {
 function FindHotspots({
   mode,
   activeTool,
+  excavationFocus,
   findState,
   selectedFindId,
   onAct,
 }: {
   mode: 'expedition' | 'fieldwork';
   activeTool: Tool;
+  excavationFocus: ExcavationFocus;
   findState: Record<string, FindState>;
   selectedFindId: string;
   onAct: (find: Find) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const dragTool = activeTool === 'brush' || activeTool === 'pick';
+  const selectedFocus = finds.find((find) => {
+    const state = findState[find.id];
+    return find.id === selectedFindId && find.locationId === excavationFocus && !state.recovered;
+  });
+  const nextFocus =
+    selectedFocus ??
+    finds.find((find) => {
+      const state = findState[find.id];
+      return find.locationId === excavationFocus && !state.recovered;
+    });
   return (
     <div
       className={`absolute inset-0 ${dragTool ? 'touch-none cursor-crosshair' : ''}`}
@@ -1633,9 +1655,13 @@ function FindHotspots({
       {finds.map((find) => {
         const state = findState[find.id];
         const pos = find.positions[mode];
-        const visible = state.exposed > 0 || find.id === '1' || find.id === '23';
+        const visible =
+          find.id === nextFocus?.id ||
+          selectedFindId === find.id ||
+          (find.locationId === excavationFocus && (state.exposed > 0 || state.recovered));
         const certaintyRisk = state.contextQuality < 82;
         const clearingScale = 1.35 - state.exposed / 120;
+        if (!visible) return null;
         return (
           <button
             key={find.id}
@@ -1652,20 +1678,18 @@ function FindHotspots({
             onClick={() => {
               if (!dragTool) onAct(find);
             }}
-            aria-label={`${find.name}, ${state.exposed}% exposed, ${state.recovered ? 'recovered' : 'in soil'}`}
+            aria-label={`${find.name}, ${state.exposed}% clear, ${state.recovered ? 'found' : 'in soil'}`}
+            disabled={false}
             className={`absolute z-10 flex size-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-xs font-bold shadow-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:size-10 ${
               state.recovered
                 ? 'border-emerald-100 bg-emerald-700 text-white opacity-80'
                 : selectedFindId === find.id
                   ? 'border-white bg-sky-700 text-white ring-4 ring-sky-300'
-                  : visible
-                    ? 'border-white/90 bg-stone-900/65 text-white'
-                    : 'border-amber-100/40 bg-stone-700/20 text-white/50'
+                  : 'border-white/90 bg-stone-900/65 text-white'
             }`}
             style={{
               left: `${pos.x}%`,
               top: `${pos.y}%`,
-              opacity: visible || activeTool === 'brush' ? undefined : 0.45,
             }}
           >
             {!state.recovered ? (
@@ -1760,7 +1784,7 @@ function ExaminationTable({
             </div>
           </section>
           <section className="rounded-md border border-border bg-card p-3">
-            <h4 className="text-sm font-semibold">What it can join</h4>
+            <h4 className="text-sm font-semibold">What it fits</h4>
             <p className="mt-2 text-sm text-muted-foreground">{joinHint(find, findState)}</p>
             <Button className="mt-3 w-full" size="sm" variant="outline" onClick={onJoin}>
               <Rotate3D aria-hidden="true" />
@@ -1861,9 +1885,9 @@ function JoinWorkspace({
   return (
     <section className="grid h-full gap-3 overflow-hidden rounded-lg border border-border bg-card p-3 md:grid-cols-[minmax(0,1fr)_310px]">
       <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-background p-3">
-        <h2 className="text-base font-semibold">Sherd Joining Bench</h2>
+        <h2 className="text-base font-semibold">Piece-Matching Table</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Drag and rotate recovered pieces toward the ghost seam. When the edges line up, confirm the snap.
+          Drag and turn two pieces toward the pale outline. When the edges touch, lock them together.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {joinPairs.map((pair) => {
@@ -1887,7 +1911,7 @@ function JoinWorkspace({
         <div className="relative mt-3 min-h-0 overflow-hidden rounded-md border border-border bg-[radial-gradient(circle_at_50%_50%,#433427,#171411)]">
           <div className="absolute left-1/2 top-1/2 h-28 w-48 -translate-x-1/2 -translate-y-1/2 rounded-[50%] border-2 border-dashed border-cyan-100/70 bg-cyan-100/10" />
           <div className="absolute left-1/2 top-[calc(50%+68px)] -translate-x-1/2 rounded bg-black/45 px-2 py-1 text-xs text-white">
-            {alreadyJoined ? 'Join confirmed' : snapReady ? 'Edges aligned' : 'Move both pieces into the seam'}
+            {alreadyJoined ? 'Pieces fit' : snapReady ? 'Edges line up' : 'Move both pieces into the outline'}
           </div>
           {pairFinds.map((find, index) => {
             const transform = index === 0 ? firstTransform : secondTransform;
@@ -1911,11 +1935,11 @@ function JoinWorkspace({
           </div>
           <Button onClick={snapPair} disabled={!pairOptions.length}>
             <Rotate3D aria-hidden="true" />
-            {snapReady || alreadyJoined ? 'Confirm snap' : 'Align to seam'}
+            {snapReady || alreadyJoined ? 'Lock pieces' : 'Move into outline'}
           </Button>
         </div>
         <div className="mt-3 rounded-md border border-border bg-card p-2">
-          <h3 className="text-xs font-semibold uppercase text-muted-foreground">Activity clue</h3>
+          <h3 className="text-xs font-semibold uppercase text-muted-foreground">Story clue</h3>
           {groupingFind ? (
             <>
               <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
@@ -1945,7 +1969,7 @@ function JoinWorkspace({
           </div>
       </div>
       <aside className="min-h-0 overflow-auto rounded-lg border border-border bg-background p-3">
-        <h3 className="font-semibold">Confirmed Relationships</h3>
+        <h3 className="font-semibold">Pieces That Fit</h3>
         <div className="mt-3 space-y-3 text-sm">
           <Relationship label="Cooking vessel" ids={['1', '2', '3']} findState={findState} />
           <Relationship label="Pigment cup" ids={['13', '14']} findState={findState} />
@@ -2219,9 +2243,9 @@ function FieldworkPanel({
   return (
     <section className="grid h-full gap-3 overflow-hidden rounded-lg border border-border bg-card p-3 md:grid-cols-[minmax(0,1fr)_320px]">
       <div className="rounded-lg border border-border bg-background p-5">
-        <h2 className="text-xl font-semibold">Fieldwork Mode</h2>
+        <h2 className="text-xl font-semibold">Practice Digs</h2>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Replay uses authored Riverbend components with varied fragment positions, disturbance emphasis, preservation quality, and tool pressure. It keeps the same archaeology logic without inventing unrelated objects.
+          Try the same room with a different first clue. Each setup changes what feels important.
         </p>
         <div className="mt-5 grid gap-3 lg:grid-cols-3">
           {fieldworkHistories.map((history) => (
@@ -2235,7 +2259,7 @@ function FieldworkPanel({
             >
               <div className="flex items-start justify-between gap-2">
                 <h3 className="font-semibold">{history.name}</h3>
-                <Badge variant={activeHistory.id === history.id ? 'default' : 'outline'}>{history.seedLabel}</Badge>
+                <Badge variant={activeHistory.id === history.id ? 'default' : 'outline'}>{history.scenarioLabel}</Badge>
               </div>
               <p className="mt-2 text-muted-foreground">{history.objective}</p>
               <p className="mt-2">{history.detail}</p>
@@ -2248,7 +2272,7 @@ function FieldworkPanel({
         </div>
         <Button className="mt-5" variant="outline" onClick={mode === 'fieldwork' ? onReturn : () => onStart(activeHistory.id)}>
           <CircleDashed aria-hidden="true" />
-          {mode === 'fieldwork' ? 'Return to expedition layout' : 'Start selected variation'}
+          {mode === 'fieldwork' ? 'Return to main dig' : 'Start selected practice'}
         </Button>
       </div>
       <aside className="rounded-lg border border-border bg-background p-5">
@@ -2372,11 +2396,11 @@ function ContextContent({
       <section className="border-b border-border p-4">
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-semibold">Next Move</h2>
-          <Badge variant="secondary">{recoveredFinds.length}/26 recovered</Badge>
+          <Badge variant="secondary">{recoveredFinds.length}/26 found</Badge>
         </div>
         <article className="mt-3 rounded-md border border-border bg-background p-3">
           <h3 className="text-sm font-semibold">{selectedFind.name}</h3>
-          <Progress value={selectedState.exposed} aria-label={`${selectedFind.name} exposure`} className="mt-3" />
+          <Progress value={selectedState.exposed} aria-label={`${selectedFind.name} clear progress`} className="mt-3" />
           <p className="mt-2 text-sm text-muted-foreground">
             {selectedState.recovered
               ? joinHintFromRecovered(selectedFind, recoveredFinds)
@@ -2395,7 +2419,7 @@ function ContextContent({
           </div>
         </article>
         <div className="mt-3 rounded-md bg-muted p-3">
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Current read</p>
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Current Story</p>
           <p className="mt-1 text-sm font-medium">{chosenScore.label}</p>
           <p className="text-xs text-muted-foreground">{chosenScore.confidence}</p>
         </div>
@@ -2406,10 +2430,10 @@ function ContextContent({
         ) : null}
         <div className="mt-3 grid grid-cols-2 gap-2">
           {[
-            ['examination', 'Examine'],
-            ['joins', 'Join'],
-            ['reconstruction', 'Rebuild'],
-            ['interpretation', 'Interpret'],
+            ['examination', 'Look'],
+            ['joins', 'Match'],
+            ['reconstruction', 'Build'],
+            ['interpretation', 'Story'],
           ].map(([target, label]) => (
             <Button key={target} variant="outline" size="sm" onClick={() => setScreen(target as Screen)}>
               {label}
@@ -2418,7 +2442,7 @@ function ContextContent({
         </div>
       </section>
       <section className="min-h-0 flex-1 overflow-auto p-4">
-        <h3 className="text-sm font-semibold">Finds Storage</h3>
+        <h3 className="text-sm font-semibold">Your Tray</h3>
         <div className="mt-3 space-y-2">
           {recoveredFinds.length ? recoveredFinds.map((find) => (
             <button
@@ -2428,11 +2452,11 @@ function ContextContent({
               className="w-full rounded-md border border-border bg-background p-3 text-left transition hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
             >
               <span className="block text-sm font-medium">#{find.id} {find.name}</span>
-              <span className="text-xs text-muted-foreground">{find.location} · {find.material}</span>
+              <span className="text-xs text-muted-foreground">{primaryGroups(find).map(groupLabel).join(', ')}</span>
             </button>
           )) : (
             <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
-              Lift exposed material to begin the collection.
+              Pick up cleared clues to begin your tray.
             </p>
           )}
         </div>
