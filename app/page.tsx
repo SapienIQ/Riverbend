@@ -17,12 +17,14 @@ import {
   Save,
   Search,
   ShieldCheck,
+  Volume2,
+  VolumeX,
   Sparkles,
   SunMedium,
 } from 'lucide-react';
 import Image from 'next/image';
 import type { ElementType, ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,6 +49,7 @@ type Screen =
   | 'interpretation'
   | 'fieldwork';
 type Tool = 'brush' | 'pick' | 'stabilize' | 'lift' | 'light' | 'join';
+type SoundCue = 'brush' | 'pick' | 'stabilize' | 'lift' | 'join' | 'place' | 'blocked' | 'clean';
 type Confidence =
   | 'Confirmed'
   | 'Strongly supported'
@@ -69,6 +72,7 @@ type Find = {
   positions: Record<'expedition' | 'fieldwork', { x: number; y: number }>;
   clue: string;
   supports: Record<'A' | 'B' | 'C', 'Supports' | 'Weakens' | 'Complicates' | 'Neutral'>;
+  closeup?: 'cooking' | 'pigment' | 'bead' | 'spindle' | 'peg';
   requiredTool?: Tool;
   fragile?: boolean;
 };
@@ -90,6 +94,28 @@ type Interpretation = {
   claim: string;
   evidence: string[];
   uncertainty: string;
+};
+
+type FieldworkHistory = {
+  id: 'threshold' | 'intrusion' | 'collapse';
+  name: string;
+  objective: string;
+  detail: string;
+  seedLabel: string;
+  startingFinds: string[];
+};
+
+type JoinPair = {
+  id: string;
+  label: string;
+  ids: [string, string];
+  group: string;
+};
+
+type FragmentTransform = {
+  x: number;
+  y: number;
+  rotation: number;
 };
 
 const tools: {
@@ -122,6 +148,7 @@ const finds: Find[] = [
     positions: { expedition: { x: 34, y: 57 }, fieldwork: { x: 31, y: 54 } },
     clue: 'Soot wraps over the break, showing reuse after the first crack.',
     supports: { A: 'Supports', B: 'Neutral', C: 'Complicates' },
+    closeup: 'cooking',
   },
   {
     id: '2',
@@ -138,6 +165,7 @@ const finds: Find[] = [
     positions: { expedition: { x: 38, y: 61 }, fieldwork: { x: 36, y: 58 } },
     clue: 'The soot line continues across the rim fragment.',
     supports: { A: 'Supports', B: 'Neutral', C: 'Complicates' },
+    closeup: 'cooking',
   },
   {
     id: '3',
@@ -154,6 +182,7 @@ const finds: Find[] = [
     positions: { expedition: { x: 54, y: 37 }, fieldwork: { x: 61, y: 46 } },
     clue: 'Its break fits the hearth pot, but its context is later mixed fill.',
     supports: { A: 'Weakens', B: 'Neutral', C: 'Supports' },
+    closeup: 'cooking',
   },
   {
     id: '4',
@@ -252,6 +281,7 @@ const finds: Find[] = [
     positions: { expedition: { x: 57, y: 29 }, fieldwork: { x: 55, y: 31 } },
     clue: 'Polished wear around the perforation suggests repeated suspension.',
     supports: { A: 'Neutral', B: 'Supports', C: 'Neutral' },
+    closeup: 'spindle',
   },
   {
     id: '10',
@@ -268,6 +298,7 @@ const finds: Find[] = [
     positions: { expedition: { x: 62, y: 30 }, fieldwork: { x: 59, y: 34 } },
     clue: 'The chip exposes the same clay fabric as the first weight.',
     supports: { A: 'Neutral', B: 'Supports', C: 'Neutral' },
+    closeup: 'spindle',
   },
   {
     id: '11',
@@ -318,6 +349,7 @@ const finds: Find[] = [
     positions: { expedition: { x: 74, y: 34 }, fieldwork: { x: 70, y: 36 } },
     clue: 'Blue pigment sits inside a fine fabric unlike local pottery.',
     supports: { A: 'Neutral', B: 'Supports', C: 'Complicates' },
+    closeup: 'pigment',
   },
   {
     id: '14',
@@ -334,6 +366,7 @@ const finds: Find[] = [
     positions: { expedition: { x: 77, y: 48 }, fieldwork: { x: 74, y: 56 } },
     clue: 'It joins the rim, but came from the later pit fill.',
     supports: { A: 'Weakens', B: 'Supports', C: 'Supports' },
+    closeup: 'pigment',
   },
   {
     id: '15',
@@ -430,6 +463,7 @@ const finds: Find[] = [
     positions: { expedition: { x: 50, y: 77 }, fieldwork: { x: 47, y: 75 } },
     clue: 'The bead is complete and tucked at the repaired threshold edge.',
     supports: { A: 'Complicates', B: 'Supports', C: 'Neutral' },
+    closeup: 'bead',
   },
   {
     id: '21',
@@ -446,6 +480,7 @@ const finds: Find[] = [
     positions: { expedition: { x: 58, y: 53 }, fieldwork: { x: 56, y: 50 } },
     clue: 'The broken grain aligns with another peg fragment.',
     supports: { A: 'Supports', B: 'Neutral', C: 'Neutral' },
+    closeup: 'peg',
   },
   {
     id: '22',
@@ -462,6 +497,7 @@ const finds: Find[] = [
     positions: { expedition: { x: 63, y: 57 }, fieldwork: { x: 60, y: 54 } },
     clue: 'It joins the first peg and follows the debris scatter.',
     supports: { A: 'Supports', B: 'Neutral', C: 'Neutral' },
+    closeup: 'peg',
   },
   {
     id: '23',
@@ -561,6 +597,49 @@ const reconstructionZones = [
   { id: 'collapse', label: 'Roof collapse', x: 63, y: 61, groups: ['collapse', 'storage'], required: 2 },
 ];
 
+const fieldworkHistories: FieldworkHistory[] = [
+  {
+    id: 'threshold',
+    name: 'Threshold Closure',
+    objective: 'Test whether repair, bead placement, and closure fittings belong to one final act.',
+    detail: 'Fragile threshold traces expose early, while storage evidence is scattered under collapse.',
+    seedLabel: 'Closure-focused seed',
+    startingFinds: ['16', '17', '18', '19', '20', '21', '22', '7', '8', '23', '24'],
+  },
+  {
+    id: 'intrusion',
+    name: 'Pit Intrusion',
+    objective: 'Separate later disturbance from the textile and cooking material it dragged together.',
+    detail: 'The pit is easier to spot, while displaced joins carry lower context certainty.',
+    seedLabel: 'Disturbance-focused seed',
+    startingFinds: ['3', '13', '14', '15', '23', '24', '1', '2', '9', '10', '11'],
+  },
+  {
+    id: 'collapse',
+    name: 'Collapse Scatter',
+    objective: 'Rebuild the final roof-fall pattern before deciding whether abandonment was sudden.',
+    detail: 'Collapsed fixtures and crushed storage become prominent, but the bead remains ambiguous.',
+    seedLabel: 'Collapse-focused seed',
+    startingFinds: ['7', '8', '21', '22', '25', '16', '17', '1', '2', '4', '20'],
+  },
+];
+
+const closeupPositions = {
+  cooking: '0% 50%',
+  pigment: '25% 50%',
+  bead: '50% 50%',
+  spindle: '75% 50%',
+  peg: '100% 50%',
+} as const;
+
+const joinPairs: JoinPair[] = [
+  { id: 'pot', label: 'Cooking vessel', ids: ['1', '2'], group: 'cooking' },
+  { id: 'pigment', label: 'Pigment cup', ids: ['13', '14'], group: 'textile' },
+  { id: 'storage', label: 'Storage jar', ids: ['7', '8'], group: 'storage' },
+  { id: 'peg', label: 'Roof peg', ids: ['21', '22'], group: 'collapse' },
+  { id: 'spindle', label: 'Spindle weight set', ids: ['9', '10'], group: 'textile' },
+];
+
 const initialFindState = Object.fromEntries(
   finds.map((find) => [
     find.id,
@@ -589,6 +668,10 @@ type ModelContextTool = {
 };
 
 declare global {
+  interface Window {
+    webkitAudioContext?: typeof AudioContext;
+  }
+
   interface Document {
     modelContext?: {
       registerTool: (
@@ -639,6 +722,9 @@ export default function Home() {
   const [guidance, setGuidance] = useState('A hard edge is emerging near the hearth.');
   const [saved, setSaved] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [fieldworkHistoryId, setFieldworkHistoryId] = useState<FieldworkHistory['id']>('threshold');
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
@@ -656,6 +742,8 @@ export default function Home() {
           findState?: Record<string, FindState>;
           placements?: Record<string, string>;
           chosenInterpretation?: 'A' | 'B' | 'C';
+          soundEnabled?: boolean;
+          fieldworkHistoryId?: FieldworkHistory['id'];
         };
         setScreen(parsed.screen ?? 'survey');
         setMode(parsed.mode ?? 'expedition');
@@ -664,6 +752,8 @@ export default function Home() {
         setFindState(parsed.findState ?? initialFindState);
         setPlacements(parsed.placements ?? {});
         setChosenInterpretation(parsed.chosenInterpretation ?? 'B');
+        setSoundEnabled(parsed.soundEnabled ?? true);
+        setFieldworkHistoryId(parsed.fieldworkHistoryId ?? 'threshold');
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
       } finally {
@@ -685,9 +775,11 @@ export default function Home() {
         findState,
         placements,
         chosenInterpretation,
+        soundEnabled,
+        fieldworkHistoryId,
       }),
     );
-  }, [hydrated, screen, mode, activeTool, selectedFindId, findState, placements, chosenInterpretation]);
+  }, [hydrated, screen, mode, activeTool, selectedFindId, findState, placements, chosenInterpretation, soundEnabled, fieldworkHistoryId]);
 
   const selectedFind = finds.find((find) => find.id === selectedFindId) ?? finds[0];
   const selectedState = findState[selectedFind.id];
@@ -735,6 +827,8 @@ export default function Home() {
   const chosenScore =
     interpretationScores.find((interpretation) => interpretation.id === chosenInterpretation) ??
     interpretationScores[1];
+  const activeFieldworkHistory =
+    fieldworkHistories.find((history) => history.id === fieldworkHistoryId) ?? fieldworkHistories[0];
   const coreComplete =
     recoveredFinds.length >= 11 &&
     joinedPairs.size >= 2 &&
@@ -748,6 +842,35 @@ export default function Home() {
       ...current,
       [id]: { ...current[id], ...patch },
     }));
+  }
+
+  function playCue(cue: SoundCue) {
+    if (!soundEnabled) return;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const context = audioContextRef.current ?? new AudioContextCtor();
+    audioContextRef.current = context;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const profiles: Record<SoundCue, { frequency: number; end: number; type: OscillatorType; gain: number }> = {
+      brush: { frequency: 180, end: 0.08, type: 'triangle', gain: 0.035 },
+      pick: { frequency: 440, end: 0.055, type: 'square', gain: 0.03 },
+      stabilize: { frequency: 260, end: 0.12, type: 'sine', gain: 0.025 },
+      lift: { frequency: 330, end: 0.11, type: 'sine', gain: 0.035 },
+      join: { frequency: 620, end: 0.16, type: 'triangle', gain: 0.04 },
+      place: { frequency: 390, end: 0.18, type: 'sine', gain: 0.035 },
+      blocked: { frequency: 120, end: 0.08, type: 'sawtooth', gain: 0.025 },
+      clean: { frequency: 520, end: 0.09, type: 'triangle', gain: 0.028 },
+    };
+    const profile = profiles[cue];
+    oscillator.type = profile.type;
+    oscillator.frequency.setValueAtTime(profile.frequency, context.currentTime);
+    gain.gain.setValueAtTime(profile.gain, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + profile.end);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + profile.end);
   }
 
   function actOnFind(find: Find) {
@@ -773,6 +896,7 @@ export default function Home() {
         contextQuality: clamp(state.contextQuality - riskPenalty),
         observations,
       });
+      playCue(activeTool);
       setGuidance(
         state.exposed + amount >= 70
           ? `${find.name} is exposed enough to lift. Its context has been recorded.`
@@ -792,11 +916,13 @@ export default function Home() {
         contextQuality: Math.max(state.contextQuality, 92),
         observations: [...new Set([...state.observations, 'Stabilized before lifting'])],
       });
+      playCue('stabilize');
       setGuidance(`${find.name} is stabilized. Fragile context can be preserved.`);
       return;
     }
     if (activeTool === 'lift') {
       if (state.exposed < 70) {
+        playCue('blocked');
         setGuidance('Brush around the object before lifting.');
         return;
       }
@@ -806,10 +932,12 @@ export default function Home() {
           contextQuality: clamp(state.contextQuality - 25),
           observations: [...new Set([...state.observations, 'Recovered with reduced contextual certainty'])],
         });
+        playCue('blocked');
         setGuidance(`${find.name} lifted, but some certainty was lost because it was fragile.`);
         return;
       }
       updateFind(find.id, { recovered: true, observations: [...new Set([...state.observations, find.clue])] });
+      playCue('lift');
       setGuidance(`${find.name} moved to the examination table with its context recorded.`);
       return;
     }
@@ -818,13 +946,17 @@ export default function Home() {
         cleaned: clamp(state.cleaned + 34),
         observations: [...new Set([...state.observations, find.clue])],
       });
+      playCue('clean');
       setGuidance(find.clue);
       setScreen('examination');
     }
   }
 
   function recoverStarterSet() {
-    const starterIds = ['1', '2', '4', '9', '10', '13', '16', '18', '20', '23', '24'];
+    const starterIds =
+      mode === 'fieldwork'
+        ? activeFieldworkHistory.startingFinds
+        : ['1', '2', '4', '9', '10', '13', '16', '18', '20', '23', '24'];
     setFindState((current) => {
       const next = { ...current };
       starterIds.forEach((id) => {
@@ -841,17 +973,24 @@ export default function Home() {
       });
       return next;
     });
-    setGuidance('A representative tray is ready for joining, grouping, and reconstruction.');
+    setGuidance(
+      mode === 'fieldwork'
+        ? `${activeFieldworkHistory.name} tray is ready. ${activeFieldworkHistory.objective}`
+        : 'A representative tray is ready for joining, grouping, and reconstruction.',
+    );
+    playCue('lift');
   }
 
   function joinFinds(find: Find) {
     if (!find.joins.length) {
       setGuidance('This object has no physical join candidate. Try grouping it by activity instead.');
+      playCue('blocked');
       return;
     }
     const availableJoin = find.joins.find((id) => findState[id]?.recovered);
     if (!availableJoin) {
       setGuidance('A matching break is likely, but the other piece has not been recovered.');
+      playCue('blocked');
       return;
     }
     updateFind(find.id, {
@@ -863,6 +1002,7 @@ export default function Home() {
       observations: [...new Set([...findState[availableJoin].observations, 'Physical join confirmed'])],
     });
     setGuidance(`${find.name} fits with ${finds.find((item) => item.id === availableJoin)?.name}. A physical join is confirmed.`);
+    playCue('join');
   }
 
   function groupFind(find: Find, group: string) {
@@ -871,6 +1011,7 @@ export default function Home() {
       observations: [...new Set([...findState[find.id].observations, `Grouped as ${group}`])],
     });
     setGuidance(`${find.name} now contributes to the ${group} interpretation.`);
+    playCue('stabilize');
   }
 
   function placeGroup(zoneId: string) {
@@ -889,10 +1030,12 @@ export default function Home() {
       setGuidance(
         `${zone.label} needs ${zone.required} matching grouped ${zone.required === 1 ? 'find' : 'finds'}${physicallyAnchored ? '' : ' plus a physical join'} before the echo can be placed.`,
       );
+      playCue('blocked');
       return;
     }
     setPlacements((current) => ({ ...current, [zoneId]: candidateEvidence[0].id }));
     setGuidance(`${zone.label} appears as an interpretive reconstruction, not certain time travel.`);
+    playCue('place');
   }
 
   function saveNow() {
@@ -903,22 +1046,37 @@ export default function Home() {
         mode,
         activeTool,
         selectedFindId,
-        findState,
-        placements,
-        chosenInterpretation,
-      }),
-    );
+          findState,
+          placements,
+          chosenInterpretation,
+          soundEnabled,
+          fieldworkHistoryId,
+        }),
+      );
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1600);
   }
 
-  function resetVariation() {
-    setMode((current) => (current === 'expedition' ? 'fieldwork' : 'expedition'));
+  function startFieldworkVariation(historyId = fieldworkHistoryId) {
+    const history = fieldworkHistories.find((item) => item.id === historyId) ?? fieldworkHistories[0];
+    setFieldworkHistoryId(history.id);
+    setMode('fieldwork');
     setFindState(initialFindState);
     setPlacements({});
     setChosenInterpretation('B');
     setScreen('excavation');
-    setGuidance('Fieldwork reshuffles the same authored evidence into a compact variation.');
+    setGuidance(`${history.name}: ${history.objective}`);
+    playCue('place');
+  }
+
+  function returnToExpedition() {
+    setMode('expedition');
+    setFindState(initialFindState);
+    setPlacements({});
+    setChosenInterpretation('B');
+    setScreen('excavation');
+    setGuidance('Returned to the authored Riverbend expedition layout.');
+    playCue('place');
   }
 
   useEffect(() => {
@@ -958,8 +1116,32 @@ export default function Home() {
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       execute: () => {
-        recoverStarterSet();
-        return { recovered: 11, next: 'Use joins, grouping, reconstruction, or interpretation review.' };
+        const starterIds =
+          mode === 'fieldwork'
+            ? activeFieldworkHistory.startingFinds
+            : ['1', '2', '4', '9', '10', '13', '16', '18', '20', '23', '24'];
+        setFindState((current) => {
+          const next = { ...current };
+          starterIds.forEach((id) => {
+            const find = finds.find((item) => item.id === id);
+            if (!find) return;
+            next[id] = {
+              ...next[id],
+              exposed: 100,
+              recovered: true,
+              stabilized: find.fragile ? true : next[id].stabilized,
+              cleaned: Math.max(next[id].cleaned, 45),
+              observations: [...new Set([...next[id].observations, find.clue])],
+            };
+          });
+          return next;
+        });
+        setGuidance(
+          mode === 'fieldwork'
+            ? `${activeFieldworkHistory.name} tray is ready. ${activeFieldworkHistory.objective}`
+            : 'A representative tray is ready for joining, grouping, and reconstruction.',
+        );
+        return { recovered: starterIds.length, next: 'Use joins, grouping, reconstruction, or interpretation review.' };
       },
     });
 
@@ -1000,8 +1182,10 @@ export default function Home() {
         setMode('fieldwork');
         setFindState(initialFindState);
         setPlacements({});
+        setChosenInterpretation('B');
         setScreen('excavation');
-        return { mode: 'fieldwork', next: 'Excavate the reshuffled authored contexts.' };
+        setGuidance(`${activeFieldworkHistory.name}: ${activeFieldworkHistory.objective}`);
+        return { mode: 'fieldwork', history: activeFieldworkHistory.name, next: activeFieldworkHistory.objective };
       },
     });
 
@@ -1015,6 +1199,10 @@ export default function Home() {
     screen,
     selectedFind.name,
     sliceProgress,
+    fieldworkHistoryId,
+    activeFieldworkHistory.name,
+    activeFieldworkHistory.objective,
+    activeFieldworkHistory.startingFinds,
   ]);
 
   return (
@@ -1040,6 +1228,14 @@ export default function Home() {
             <Button variant="outline" size="sm" onClick={recoverStarterSet}>
               <Sparkles aria-hidden="true" />
               Seed tray
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label={soundEnabled ? 'Turn sound off' : 'Turn sound on'}
+              onClick={() => setSoundEnabled((current) => !current)}
+            >
+              {soundEnabled ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}
             </Button>
             <Button size="sm" onClick={saveNow}>
               <Save aria-hidden="true" />
@@ -1082,6 +1278,7 @@ export default function Home() {
               <TabsContent value="survey" className="h-[calc(100%-48px)]">
                 <BoardFrame
                   mode={mode}
+                  fieldworkLabel={activeFieldworkHistory.seedLabel}
                   title="Exterior survey"
                   description="Read the room before disturbing it. The courtyard, threshold, hearth, bench, and pit can all be chosen as excavation priorities."
                 >
@@ -1095,6 +1292,7 @@ export default function Home() {
               <TabsContent value="excavation" className="h-[calc(100%-48px)]">
                 <BoardFrame
                   mode={mode}
+                  fieldworkLabel={activeFieldworkHistory.seedLabel}
                   title="Excavation area"
                   description={`${exposedCount} find contexts visible. Active tool: ${tools.find((tool) => tool.id === activeTool)?.label}.`}
                 >
@@ -1134,6 +1332,7 @@ export default function Home() {
               <TabsContent value="reconstruction" className="h-[calc(100%-48px)]">
                 <BoardFrame
                   mode={mode}
+                  fieldworkLabel={activeFieldworkHistory.seedLabel}
                   title="Reconstruction space"
                   description="Place supported activity zones. Translucent forms show interpretation, while excavated reality remains visible beneath."
                 >
@@ -1160,7 +1359,9 @@ export default function Home() {
                   mode={mode}
                   progress={sliceProgress}
                   chosenScore={chosenScore}
-                  onReset={resetVariation}
+                  activeHistory={activeFieldworkHistory}
+                  onStart={startFieldworkVariation}
+                  onReturn={returnToExpedition}
                 />
               </TabsContent>
             </Tabs>
@@ -1234,11 +1435,13 @@ function ToolTray({
 function BoardFrame({
   children,
   mode,
+  fieldworkLabel,
   title,
   description,
 }: {
   children: ReactNode;
   mode: 'expedition' | 'fieldwork';
+  fieldworkLabel?: string;
   title: string;
   description: string;
 }) {
@@ -1259,7 +1462,7 @@ function BoardFrame({
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,transparent_20%,rgb(26_22_17/0.16)_100%)]" />
       {mode === 'fieldwork' ? (
         <div className="absolute right-3 top-3 z-20 rounded-md border border-amber-100 bg-amber-50/95 px-3 py-1.5 text-xs font-semibold text-amber-950">
-          Fieldwork seed
+          {fieldworkLabel ?? 'Fieldwork seed'}
         </div>
       ) : null}
       {children}
@@ -1304,17 +1507,37 @@ function FindHotspots({
   selectedFindId: string;
   onAct: (find: Find) => void;
 }) {
+  const [dragging, setDragging] = useState(false);
+  const dragTool = activeTool === 'brush' || activeTool === 'pick';
   return (
-    <div className="absolute inset-0">
+    <div
+      className={`absolute inset-0 ${dragTool ? 'touch-none cursor-crosshair' : ''}`}
+      onPointerUp={() => setDragging(false)}
+      onPointerCancel={() => setDragging(false)}
+      onPointerLeave={() => setDragging(false)}
+    >
       {finds.map((find) => {
         const state = findState[find.id];
         const pos = find.positions[mode];
         const visible = state.exposed > 0 || find.id === '1' || find.id === '23';
+        const certaintyRisk = state.contextQuality < 82;
+        const clearingScale = 1.35 - state.exposed / 120;
         return (
           <button
             key={find.id}
             type="button"
-            onClick={() => onAct(find)}
+            onPointerDown={(event) => {
+              if (!dragTool) return;
+              event.preventDefault();
+              setDragging(true);
+              onAct(find);
+            }}
+            onPointerEnter={() => {
+              if (dragging && dragTool) onAct(find);
+            }}
+            onClick={() => {
+              if (!dragTool) onAct(find);
+            }}
             aria-label={`${find.name}, ${state.exposed}% exposed, ${state.recovered ? 'recovered' : 'in soil'}`}
             className={`absolute z-10 flex size-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-xs font-bold shadow-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:size-10 ${
               state.recovered
@@ -1331,11 +1554,32 @@ function FindHotspots({
               opacity: visible || activeTool === 'brush' ? undefined : 0.45,
             }}
           >
+            {!state.recovered ? (
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute -inset-5 rounded-full border shadow-inner transition-all duration-300 ${
+                  certaintyRisk
+                    ? 'border-rose-200/90 bg-rose-900/25 shadow-rose-950/50'
+                    : state.stabilized
+                      ? 'border-emerald-100/80 bg-emerald-200/20 shadow-emerald-950/30'
+                      : 'border-amber-100/70 bg-stone-900/38 shadow-stone-950/60'
+                }`}
+                style={{
+                  transform: `scale(${Math.max(0.45, clearingScale)})`,
+                  opacity: clamp(100 - state.exposed, 8, 82) / 100,
+                }}
+              />
+            ) : null}
             {state.recovered ? <CheckCircle2 className="size-5" aria-hidden="true" /> : find.id}
             <span
               className="absolute -bottom-1 left-1/2 h-1 -translate-x-1/2 rounded-full bg-white/90"
               style={{ width: `${Math.max(8, state.exposed / 2)}%` }}
             />
+            {!state.recovered && (state.stabilized || certaintyRisk) ? (
+              <span className={`absolute -right-2 -top-2 rounded px-1 text-[10px] ${certaintyRisk ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>
+                {certaintyRisk ? 'risk' : 'safe'}
+              </span>
+            ) : null}
           </button>
         );
       })}
@@ -1361,12 +1605,18 @@ function ExaminationTable({
         </div>
         <div className="absolute inset-0 flex items-center justify-center">
           <div
-            className="relative flex aspect-square w-[min(58vh,70vw)] max-w-[440px] items-center justify-center rounded-full border border-black/20 bg-[conic-gradient(from_20deg,#7f4229,#c88955,#9b5b39,#3a3128,#7f4229)] shadow-2xl transition-transform duration-500"
+            className="relative flex aspect-square w-[min(58vh,70vw)] max-w-[440px] items-end justify-center overflow-hidden rounded-lg border border-black/25 bg-stone-900 bg-[length:500%_100%] bg-no-repeat shadow-2xl transition-transform duration-500"
             style={{ transform: `rotate(${state.cleaned * 1.2}deg)` }}
           >
-            <div className="absolute inset-[18%] rounded-full border-[18px] border-black/15" />
-            <div className="absolute h-[62%] w-3 rotate-45 rounded-full bg-black/25" />
-            <div className="z-10 rounded-md border border-white/40 bg-black/45 px-3 py-2 text-center text-sm font-semibold text-white">
+            <div
+              className="absolute inset-0 bg-[url('/assets/riverbend-artifact-closeups.png')] bg-[length:500%_100%] bg-no-repeat transition-[filter] duration-300"
+              style={{
+                backgroundPosition: find.closeup ? closeupPositions[find.closeup] : '0% 50%',
+                filter: `contrast(${0.85 + state.cleaned / 350}) saturate(${0.75 + state.cleaned / 320}) brightness(${0.65 + state.cleaned / 240})`,
+              }}
+            />
+            <div className="absolute inset-0 bg-[linear-gradient(145deg,rgb(255_244_214/0.22),transparent_35%,rgb(0_0_0/0.35))]" />
+            <div className="z-10 mb-4 rounded-md border border-white/40 bg-black/48 px-3 py-2 text-center text-sm font-semibold text-white backdrop-blur-sm">
               {find.material}
               <br />
               <span className="text-xs font-normal">{state.cleaned}% readable</span>
@@ -1419,39 +1669,114 @@ function JoinWorkspace({
   onJoin: (find: Find) => void;
   onGroup: (find: Find, group: string) => void;
 }) {
+  const recoveredIds = new Set(recoveredFinds.map((find) => find.id));
+  const pairOptions = joinPairs.filter((pair) => pair.ids.every((id) => recoveredIds.has(id)));
+  const [activePairId, setActivePairId] = useState(pairOptions[0]?.id ?? joinPairs[0].id);
+  const activePair = pairOptions.find((pair) => pair.id === activePairId) ?? pairOptions[0] ?? joinPairs[0];
+  const pairFinds = activePair.ids.map((id) => finds.find((find) => find.id === id) ?? finds[0]) as [Find, Find];
+  const [transforms, setTransforms] = useState<Record<string, FragmentTransform>>({
+    [activePair.ids[0]]: { x: 28, y: 50, rotation: -16 },
+    [activePair.ids[1]]: { x: 68, y: 50, rotation: 18 },
+  });
+  const firstTransform = transforms[activePair.ids[0]] ?? { x: 28, y: 50, rotation: -16 };
+  const secondTransform = transforms[activePair.ids[1]] ?? { x: 68, y: 50, rotation: 18 };
+  const distance = Math.hypot(firstTransform.x - 46, firstTransform.y - 50) + Math.hypot(secondTransform.x - 54, secondTransform.y - 50);
+  const rotationGap = Math.abs(firstTransform.rotation + secondTransform.rotation);
+  const snapReady = distance < 18 && rotationGap < 22;
+  const alreadyJoined = findState[activePair.ids[0]]?.joinedWith.includes(activePair.ids[1]);
+
+  function moveFragment(id: string, patch: Partial<FragmentTransform>) {
+    setTransforms((current) => {
+      const existing = current[id] ?? { x: id === activePair.ids[0] ? 28 : 68, y: 50, rotation: 0 };
+      return {
+        ...current,
+        [id]: {
+          ...existing,
+          ...patch,
+          x: clamp(patch.x ?? existing.x, 12, 88),
+          y: clamp(patch.y ?? existing.y, 20, 82),
+        },
+      };
+    });
+  }
+
+  function snapPair() {
+    if (!pairOptions.length) return;
+    if (!snapReady && !alreadyJoined) {
+      moveFragment(activePair.ids[0], { x: 42, y: 50, rotation: -8 });
+      moveFragment(activePair.ids[1], { x: 58, y: 50, rotation: 8 });
+      return;
+    }
+    onJoin(pairFinds[0]);
+    activePair.ids.forEach((id) => moveFragment(id, { x: id === activePair.ids[0] ? 46 : 54, y: 50, rotation: 0 }));
+  }
+
   return (
     <section className="grid h-full gap-3 overflow-hidden rounded-lg border border-border bg-card p-3 md:grid-cols-[minmax(0,1fr)_310px]">
-      <div className="min-h-0 overflow-auto rounded-lg border border-border bg-background p-3">
-        <h2 className="text-base font-semibold">Join and Group Finds</h2>
+      <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-background p-3">
+        <h2 className="text-base font-semibold">Sherd Joining Bench</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Physical joins are strongest. Activity groups remain interpretive and can be revised.
+          Drag and rotate recovered pieces toward the ghost seam. When the edges line up, confirm the snap.
         </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-3 flex flex-wrap gap-2">
+          {joinPairs.map((pair) => {
+            const available = pair.ids.every((id) => recoveredIds.has(id));
+            const joined = findState[pair.ids[0]]?.joinedWith.includes(pair.ids[1]);
+            return (
+              <Button
+                key={pair.id}
+                size="sm"
+                variant={activePair.id === pair.id ? 'default' : 'outline'}
+                disabled={!available}
+                onClick={() => setActivePairId(pair.id)}
+              >
+                {joined ? <CheckCircle2 aria-hidden="true" /> : <Rotate3D aria-hidden="true" />}
+                {pair.label}
+              </Button>
+            );
+          })}
+        </div>
+        <div className="relative mt-3 min-h-0 overflow-hidden rounded-md border border-border bg-[radial-gradient(circle_at_50%_50%,#433427,#171411)]">
+          <div className="absolute left-1/2 top-1/2 h-28 w-48 -translate-x-1/2 -translate-y-1/2 rounded-[50%] border-2 border-dashed border-cyan-100/70 bg-cyan-100/10" />
+          <div className="absolute left-1/2 top-[calc(50%+68px)] -translate-x-1/2 rounded bg-black/45 px-2 py-1 text-xs text-white">
+            {alreadyJoined ? 'Join confirmed' : snapReady ? 'Edges aligned' : 'Move both pieces into the seam'}
+          </div>
+          {pairFinds.map((find, index) => {
+            const transform = index === 0 ? firstTransform : secondTransform;
+            return (
+              <FragmentPiece
+                key={find.id}
+                find={find}
+                transform={transform}
+                onMove={(next) => moveFragment(find.id, next)}
+              />
+            );
+          })}
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+          <div className="grid grid-cols-4 gap-1">
+            {pairFinds.map((find) => (
+              <div key={find.id} className="rounded-md bg-muted p-2 text-xs">
+                <span className="font-semibold">#{find.id}</span> {find.name}
+              </div>
+            ))}
+          </div>
+          <Button onClick={snapPair} disabled={!pairOptions.length}>
+            <Rotate3D aria-hidden="true" />
+            {snapReady || alreadyJoined ? 'Confirm snap' : 'Align to seam'}
+          </Button>
+        </div>
+        <div className="mt-3 max-h-28 overflow-auto rounded-md border border-border bg-card p-2">
+          <h3 className="text-xs font-semibold uppercase text-muted-foreground">Activity grouping</h3>
+          <div className="mt-2 flex flex-wrap gap-1">
           {recoveredFinds.map((find) => (
-            <article key={find.id} className="rounded-md border border-border bg-card p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h3 className="text-sm font-semibold">{find.name}</h3>
-                  <p className="text-xs text-muted-foreground">{find.material}</p>
-                </div>
-                <Badge variant={findState[find.id].joinedWith.length ? 'default' : 'outline'}>
-                  {findState[find.id].joinedWith.length ? 'joined' : `#${find.id}`}
-                </Badge>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">{find.relationships}</p>
-              <div className="mt-3 flex flex-wrap gap-1">
-                <Button size="xs" variant="outline" onClick={() => onJoin(find)}>
-                  <Rotate3D aria-hidden="true" />
-                  Test join
-                </Button>
-                {find.group.slice(0, 2).map((group) => (
-                  <Button key={group} size="xs" variant="secondary" onClick={() => onGroup(find, group)}>
-                    {group}
-                  </Button>
-                ))}
-              </div>
-            </article>
+            find.group.slice(0, 2).map((group) => (
+              <Button key={`${find.id}-${group}`} size="xs" variant="secondary" onClick={() => onGroup(find, group)}>
+                #{find.id} {group}
+              </Button>
+            ))
           ))}
+          </div>
         </div>
       </div>
       <aside className="min-h-0 overflow-auto rounded-lg border border-border bg-background p-3">
@@ -1465,6 +1790,56 @@ function JoinWorkspace({
         </div>
       </aside>
     </section>
+  );
+}
+
+function FragmentPiece({
+  find,
+  transform,
+  onMove,
+}: {
+  find: Find;
+  transform: FragmentTransform;
+  onMove: (transform: Partial<FragmentTransform>) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`${find.name} movable fragment`}
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 8 : 4;
+        if (event.key === 'ArrowLeft') onMove({ x: transform.x - step });
+        if (event.key === 'ArrowRight') onMove({ x: transform.x + step });
+        if (event.key === 'ArrowUp') onMove({ y: transform.y - step });
+        if (event.key === 'ArrowDown') onMove({ y: transform.y + step });
+        if (event.key === '[') onMove({ rotation: transform.rotation - 8 });
+        if (event.key === ']') onMove({ rotation: transform.rotation + 8 });
+      }}
+      onPointerDown={(event) => {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+        const rect = event.currentTarget.parentElement?.getBoundingClientRect();
+        if (!rect) return;
+        onMove({
+          x: ((event.clientX - rect.left) / rect.width) * 100,
+          y: ((event.clientY - rect.top) / rect.height) * 100,
+        });
+      }}
+      className="absolute z-10 flex aspect-[1.25/1] w-[min(27vw,190px)] -translate-x-1/2 -translate-y-1/2 touch-none items-end justify-center overflow-hidden rounded-[42%_58%_48%_52%] border border-white/45 bg-stone-900 bg-[url('/assets/riverbend-artifact-closeups.png')] bg-[length:500%_100%] bg-no-repeat p-2 shadow-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+      style={{
+        left: `${transform.x}%`,
+        top: `${transform.y}%`,
+        transform: `translate(-50%, -50%) rotate(${transform.rotation}deg)`,
+        backgroundPosition: find.closeup ? closeupPositions[find.closeup] : '0% 50%',
+      }}
+    >
+      <span className="rounded bg-black/55 px-2 py-1 text-xs font-semibold text-white">#{find.id}</span>
+      <span className="absolute right-1 top-1 rounded bg-black/55 px-1 text-[10px] text-white">
+        arrows move, [ ] rotate
+      </span>
+    </button>
   );
 }
 
@@ -1504,6 +1879,11 @@ function ReconstructionOverlay({
 }) {
   return (
     <div className="absolute inset-0">
+      <ReconstructionStage zoneId="hearth" placed={Boolean(placements.hearth)} />
+      <ReconstructionStage zoneId="bench" placed={Boolean(placements.bench)} />
+      <ReconstructionStage zoneId="threshold" placed={Boolean(placements.threshold)} />
+      <ReconstructionStage zoneId="pit" placed={Boolean(placements.pit)} />
+      <ReconstructionStage zoneId="collapse" placed={Boolean(placements.collapse)} />
       {reconstructionZones.map((zone) => {
         const placed = Boolean(placements[zone.id]);
         const groupedMatches = recoveredFinds.filter((find) =>
@@ -1538,17 +1918,50 @@ function ReconstructionOverlay({
           </button>
         );
       })}
-      {Object.keys(placements).map((zoneId) => {
-        const zone = reconstructionZones.find((item) => item.id === zoneId);
-        if (!zone) return null;
-        return (
-          <div
-            key={`${zoneId}-echo`}
-            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-100/70 bg-cyan-200/18 shadow-[0_0_60px_rgb(125_211_252/0.55)]"
-            style={{ left: `${zone.x}%`, top: `${zone.y}%`, width: '22%', aspectRatio: '1 / .55' }}
-          />
-        );
-      })}
+    </div>
+  );
+}
+
+function ReconstructionStage({ zoneId, placed }: { zoneId: string; placed: boolean }) {
+  if (!placed) return null;
+  const stageClass =
+    zoneId === 'hearth'
+      ? 'left-[23%] top-[45%] h-[24%] w-[24%] rounded-full border-orange-100/70 bg-orange-500/22 shadow-[0_0_70px_rgb(251_146_60/0.55)]'
+      : zoneId === 'bench'
+        ? 'left-[54%] top-[19%] h-[18%] w-[30%] rounded-md border-sky-100/70 bg-sky-500/20 shadow-[0_0_55px_rgb(56_189_248/0.45)]'
+        : zoneId === 'threshold'
+          ? 'left-[42%] top-[76%] h-[12%] w-[23%] rounded-md border-emerald-100/80 bg-emerald-500/24 shadow-[0_0_50px_rgb(16_185_129/0.5)]'
+          : zoneId === 'pit'
+            ? 'left-[69%] top-[38%] h-[21%] w-[18%] rounded-[48%] border-rose-100/80 bg-rose-600/22 shadow-[0_0_50px_rgb(244_63_94/0.45)]'
+            : 'left-[49%] top-[45%] h-[30%] w-[30%] -rotate-12 rounded-md border-stone-100/80 bg-stone-700/30 shadow-[0_0_60px_rgb(214_211_209/0.35)]';
+  const labels: Record<string, string> = {
+    hearth: 'Phase I hearth use',
+    bench: 'Phase II textile bench',
+    threshold: 'Phase III threshold closure',
+    pit: 'Later cut through floor',
+    collapse: 'Roof collapse layer',
+  };
+  return (
+    <div
+      className={`pointer-events-none absolute z-[5] border-2 backdrop-blur-[1px] transition-opacity ${stageClass}`}
+      aria-hidden="true"
+    >
+      <span className="absolute left-2 top-2 rounded bg-black/52 px-2 py-1 text-xs font-semibold text-white">
+        {labels[zoneId]}
+      </span>
+      {zoneId === 'collapse' ? (
+        <div className="absolute inset-5 grid rotate-12 grid-cols-3 gap-2 opacity-75">
+          <span className="rounded bg-stone-200/60" />
+          <span className="rounded bg-stone-200/45" />
+          <span className="rounded bg-stone-200/55" />
+        </div>
+      ) : null}
+      {zoneId === 'bench' ? (
+        <div className="absolute inset-x-5 bottom-4 h-4 rounded bg-cyan-100/55" />
+      ) : null}
+      {zoneId === 'hearth' ? (
+        <div className="absolute inset-[28%] rounded-full border-[10px] border-orange-100/50 bg-black/25" />
+      ) : null}
     </div>
   );
 }
@@ -1626,12 +2039,16 @@ function FieldworkPanel({
   mode,
   progress,
   chosenScore,
-  onReset,
+  activeHistory,
+  onStart,
+  onReturn,
 }: {
   mode: 'expedition' | 'fieldwork';
   progress: number;
   chosenScore: Interpretation & { confidence: Confidence; score: number };
-  onReset: () => void;
+  activeHistory: FieldworkHistory;
+  onStart: (historyId: FieldworkHistory['id']) => void;
+  onReturn: () => void;
 }) {
   return (
     <section className="grid h-full gap-3 overflow-hidden rounded-lg border border-border bg-card p-3 md:grid-cols-[minmax(0,1fr)_320px]">
@@ -1640,19 +2057,32 @@ function FieldworkPanel({
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Replay uses authored Riverbend components with varied fragment positions, disturbance emphasis, preservation quality, and tool pressure. It keeps the same archaeology logic without inventing unrelated objects.
         </p>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {[
-            'Fragment positions shift within plausible contexts',
-            'The disturbance pit changes which joins cross layers',
-            'Fragile traces may require stabilization earlier',
-            'One ambiguity is withheld or added per seed',
-          ].map((item) => (
-            <div key={item} className="rounded-md bg-muted p-3 text-sm">{item}</div>
+        <div className="mt-5 grid gap-3 lg:grid-cols-3">
+          {fieldworkHistories.map((history) => (
+            <article
+              key={history.id}
+              className={`rounded-md border p-3 text-sm ${
+                mode === 'fieldwork' && activeHistory.id === history.id
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border bg-muted'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-semibold">{history.name}</h3>
+                <Badge variant={activeHistory.id === history.id ? 'default' : 'outline'}>{history.seedLabel}</Badge>
+              </div>
+              <p className="mt-2 text-muted-foreground">{history.objective}</p>
+              <p className="mt-2">{history.detail}</p>
+              <Button className="mt-3 w-full" size="sm" onClick={() => onStart(history.id)}>
+                <CircleDashed aria-hidden="true" />
+                Start
+              </Button>
+            </article>
           ))}
         </div>
-        <Button className="mt-5" onClick={onReset}>
+        <Button className="mt-5" variant="outline" onClick={mode === 'fieldwork' ? onReturn : () => onStart(activeHistory.id)}>
           <CircleDashed aria-hidden="true" />
-          {mode === 'fieldwork' ? 'Return to expedition layout' : 'Start fieldwork variation'}
+          {mode === 'fieldwork' ? 'Return to expedition layout' : 'Start selected variation'}
         </Button>
       </div>
       <aside className="rounded-lg border border-border bg-background p-5">
