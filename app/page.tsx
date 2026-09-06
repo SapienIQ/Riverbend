@@ -19,6 +19,7 @@ import {
   Sparkles,
   SunMedium,
 } from 'lucide-react';
+import Image from 'next/image';
 import type { ElementType, ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -618,28 +619,31 @@ export default function Home() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw) as {
-        screen?: Screen;
-        mode?: 'expedition' | 'fieldwork';
-        activeTool?: Tool;
-        selectedFindId?: string;
-        findState?: Record<string, FindState>;
-        placements?: Record<string, string>;
-        chosenInterpretation?: 'A' | 'B' | 'C';
-      };
-      setScreen(parsed.screen ?? 'survey');
-      setMode(parsed.mode ?? 'expedition');
-      setActiveTool(parsed.activeTool ?? 'brush');
-      setSelectedFindId(parsed.selectedFindId ?? '1');
-      setFindState(parsed.findState ?? initialFindState);
-      setPlacements(parsed.placements ?? {});
-      setChosenInterpretation(parsed.chosenInterpretation ?? 'B');
-    } catch {
-      window.localStorage.removeItem(STORAGE_KEY);
-    }
+    const restore = window.setTimeout(() => {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as {
+          screen?: Screen;
+          mode?: 'expedition' | 'fieldwork';
+          activeTool?: Tool;
+          selectedFindId?: string;
+          findState?: Record<string, FindState>;
+          placements?: Record<string, string>;
+          chosenInterpretation?: 'A' | 'B' | 'C';
+        };
+        setScreen(parsed.screen ?? 'survey');
+        setMode(parsed.mode ?? 'expedition');
+        setActiveTool(parsed.activeTool ?? 'brush');
+        setSelectedFindId(parsed.selectedFindId ?? '1');
+        setFindState(parsed.findState ?? initialFindState);
+        setPlacements(parsed.placements ?? {});
+        setChosenInterpretation(parsed.chosenInterpretation ?? 'B');
+      } catch {
+        window.localStorage.removeItem(STORAGE_KEY);
+      }
+    }, 0);
+    return () => window.clearTimeout(restore);
   }, []);
 
   useEffect(() => {
@@ -1149,11 +1153,13 @@ function BoardFrame({
         <h2 className="text-sm font-semibold sm:text-base">{title}</h2>
         <p className="mt-0.5 text-xs text-white/82 sm:text-sm">{description}</p>
       </div>
-      <div
-        className="absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: "url('/assets/riverbend-workshop.png')" }}
-        role="img"
-        aria-label="Illustrated top-down workshop excavation with hearth, bench, threshold, and disturbance pit."
+      <Image
+        className="absolute inset-0 size-full object-cover"
+        src="/assets/riverbend-workshop.png"
+        alt="Illustrated top-down workshop excavation with hearth, bench, threshold, and disturbance pit."
+        fill
+        priority
+        sizes="100vw"
       />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,transparent_20%,rgb(26_22_17/0.16)_100%)]" />
       {mode === 'fieldwork' ? (
