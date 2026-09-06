@@ -37,15 +37,6 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from '@/components/ui/drawer';
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -1454,30 +1445,28 @@ export default function Home() {
             <div className="hidden w-40 sm:block">
               <Progress value={clamp(sliceProgress)} aria-label="Site progress" />
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="Menu" />}>
-                <Menu aria-hidden="true" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Game Menu</DropdownMenuLabel>
-                <DropdownMenuItem onClick={saveNow}>
+            <details className="group/menu relative">
+              <summary className="flex size-8 cursor-pointer list-none items-center justify-center rounded-lg border border-border bg-background transition hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+                <Menu className="size-4" aria-hidden="true" />
+                <span className="sr-only">Menu</span>
+              </summary>
+              <div className="absolute right-0 top-10 z-50 w-56 rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg">
+                <p className="px-2 py-1 text-xs font-medium text-muted-foreground">Game Menu</p>
+                <button type="button" onClick={saveNow} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
                   <Save aria-hidden="true" />
                   {saved ? 'Saved' : 'Save'}
-                </DropdownMenuItem>
-                <DropdownMenuCheckboxItem
-                  checked={soundEnabled}
-                  onCheckedChange={(checked) => setSoundEnabled(Boolean(checked))}
-                >
+                </button>
+                <button type="button" onClick={() => setSoundEnabled((current) => !current)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
                   {soundEnabled ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}
-                  Sound
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={recoverStarterSet}>
+                  {soundEnabled ? 'Sound on' : 'Sound off'}
+                </button>
+                <div className="my-1 h-px bg-border" />
+                <button type="button" onClick={recoverStarterSet} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
                   <Sparkles aria-hidden="true" />
                   Skip to test set
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </button>
+              </div>
+            </details>
           </div>
         </header>
 
