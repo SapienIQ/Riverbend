@@ -10,6 +10,7 @@
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
+    "lint:authored": "oxlint app/page.tsx app/layout.tsx app/globals.css docs",
     "format": "oxfmt"
   },
   "dependencies": {

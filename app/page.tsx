@@ -4,6 +4,7 @@ import {
   Archive,
   Brush,
   CheckCircle2,
+  ClipboardCheck,
   CircleDashed,
   Compass,
   Eye,
@@ -25,6 +26,14 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from '@/components/ui/drawer';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -72,6 +81,7 @@ type FindState = {
   observations: string[];
   joinedWith: string[];
   groups: string[];
+  contextQuality: number;
 };
 
 type Interpretation = {
@@ -544,11 +554,11 @@ const interpretations: Interpretation[] = [
 ];
 
 const reconstructionZones = [
-  { id: 'hearth', label: 'Hearth use', x: 35, y: 58, groups: ['cooking'] },
-  { id: 'bench', label: 'Textile bench', x: 66, y: 31, groups: ['textile', 'trade'] },
-  { id: 'threshold', label: 'Repaired threshold', x: 51, y: 83, groups: ['closure', 'repair'] },
-  { id: 'pit', label: 'Later pit', x: 78, y: 49, groups: ['disturbance'] },
-  { id: 'collapse', label: 'Roof collapse', x: 63, y: 61, groups: ['collapse', 'storage'] },
+  { id: 'hearth', label: 'Hearth use', x: 35, y: 58, groups: ['cooking'], required: 2 },
+  { id: 'bench', label: 'Textile bench', x: 66, y: 31, groups: ['textile', 'trade'], required: 3 },
+  { id: 'threshold', label: 'Repaired threshold', x: 51, y: 83, groups: ['closure', 'repair'], required: 2 },
+  { id: 'pit', label: 'Later pit', x: 78, y: 49, groups: ['disturbance'], required: 1 },
+  { id: 'collapse', label: 'Roof collapse', x: 63, y: 61, groups: ['collapse', 'storage'], required: 2 },
 ];
 
 const initialFindState = Object.fromEntries(
@@ -562,6 +572,7 @@ const initialFindState = Object.fromEntries(
       observations: [],
       joinedWith: [],
       groups: [],
+      contextQuality: 100,
     },
   ]),
 ) as Record<string, FindState>;
@@ -607,6 +618,16 @@ function clamp(value: number, min = 0, max = 100) {
   return Math.min(max, Math.max(min, value));
 }
 
+function hasGroupedEvidence(findState: Record<string, FindState>, find: Find, group: string) {
+  return findState[find.id]?.groups.includes(group);
+}
+
+function hasConfirmedJoin(findState: Record<string, FindState>, ids: string[]) {
+  return ids.some((id) =>
+    findState[id]?.joinedWith.some((other) => ids.includes(other)),
+  );
+}
+
 export default function Home() {
   const [screen, setScreen] = useState<Screen>('survey');
   const [mode, setMode] = useState<'expedition' | 'fieldwork'>('expedition');
@@ -617,11 +638,15 @@ export default function Home() {
   const [chosenInterpretation, setChosenInterpretation] = useState<'A' | 'B' | 'C'>('B');
   const [guidance, setGuidance] = useState('A hard edge is emerging near the hearth.');
   const [saved, setSaved] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
       const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
+      if (!raw) {
+        setHydrated(true);
+        return;
+      }
       try {
         const parsed = JSON.parse(raw) as {
           screen?: Screen;
@@ -641,12 +666,15 @@ export default function Home() {
         setChosenInterpretation(parsed.chosenInterpretation ?? 'B');
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
+      } finally {
+        setHydrated(true);
       }
     }, 0);
     return () => window.clearTimeout(restore);
   }, []);
 
   useEffect(() => {
+    if (!hydrated) return;
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
@@ -659,7 +687,7 @@ export default function Home() {
         chosenInterpretation,
       }),
     );
-  }, [screen, mode, activeTool, selectedFindId, findState, placements, chosenInterpretation]);
+  }, [hydrated, screen, mode, activeTool, selectedFindId, findState, placements, chosenInterpretation]);
 
   const selectedFind = finds.find((find) => find.id === selectedFindId) ?? finds[0];
   const selectedState = findState[selectedFind.id];
@@ -685,7 +713,10 @@ export default function Home() {
 
   const interpretationScores = interpretations.map((interpretation) => {
     const score = recoveredFinds.reduce(
-      (sum, find) => sum + relationScore(find.supports[interpretation.id]),
+      (sum, find) => {
+        const contextMultiplier = (findState[find.id]?.contextQuality ?? 100) < 75 ? 0.65 : 1;
+        return sum + relationScore(find.supports[interpretation.id]) * contextMultiplier;
+      },
       0,
     );
     return {
@@ -704,6 +735,11 @@ export default function Home() {
   const chosenScore =
     interpretationScores.find((interpretation) => interpretation.id === chosenInterpretation) ??
     interpretationScores[1];
+  const coreComplete =
+    recoveredFinds.length >= 11 &&
+    joinedPairs.size >= 2 &&
+    groupedCount >= 8 &&
+    placedCount >= 4;
 
   const recommendedTool: Tool = selectedFind.fragile && !selectedState.stabilized ? 'stabilize' : selectedState.exposed < 70 ? 'brush' : selectedState.recovered ? 'light' : 'lift';
 
@@ -716,21 +752,46 @@ export default function Home() {
 
   function actOnFind(find: Find) {
     const state = findState[find.id];
+    const compactContext =
+      find.locationId === 'pit' ||
+      find.locationId === 'threshold' ||
+      find.locationId === 'collapse';
     setSelectedFindId(find.id);
     if (activeTool === 'brush' || activeTool === 'pick') {
-      const amount = activeTool === 'brush' ? 24 : 16;
-      updateFind(find.id, { exposed: clamp(state.exposed + amount) });
+      const amount = activeTool === 'brush' ? 20 : compactContext ? 34 : 26;
+      const riskPenalty =
+        activeTool === 'pick' && find.fragile && !state.stabilized
+          ? 18
+          : activeTool === 'pick' && !compactContext && state.exposed > 45
+            ? 8
+            : 0;
+      const observations = riskPenalty
+        ? [...new Set([...state.observations, 'Tool marks reduced contextual certainty'])]
+        : state.observations;
+      updateFind(find.id, {
+        exposed: clamp(state.exposed + amount),
+        contextQuality: clamp(state.contextQuality - riskPenalty),
+        observations,
+      });
       setGuidance(
         state.exposed + amount >= 70
           ? `${find.name} is exposed enough to lift. Its context has been recorded.`
           : activeTool === 'brush'
             ? 'Loose soil clears from the edge without disturbing the object.'
-            : 'The compact fill gives way slowly around the hard edge.',
+            : compactContext
+              ? 'The fine pick works compact fill quickly around the hard edge.'
+              : riskPenalty
+                ? 'The pick moved faster, but it nicked a fragile context.'
+                : 'The fine pick exposes the object faster, with a little more risk.',
       );
       return;
     }
     if (activeTool === 'stabilize') {
-      updateFind(find.id, { stabilized: true, observations: [...state.observations, 'Stabilized before lifting'] });
+      updateFind(find.id, {
+        stabilized: true,
+        contextQuality: Math.max(state.contextQuality, 92),
+        observations: [...new Set([...state.observations, 'Stabilized before lifting'])],
+      });
       setGuidance(`${find.name} is stabilized. Fragile context can be preserved.`);
       return;
     }
@@ -740,11 +801,15 @@ export default function Home() {
         return;
       }
       if (find.fragile && !state.stabilized) {
-        updateFind(find.id, { recovered: true, observations: [...state.observations, 'Recovered with reduced contextual certainty'] });
+        updateFind(find.id, {
+          recovered: true,
+          contextQuality: clamp(state.contextQuality - 25),
+          observations: [...new Set([...state.observations, 'Recovered with reduced contextual certainty'])],
+        });
         setGuidance(`${find.name} lifted, but some certainty was lost because it was fragile.`);
         return;
       }
-      updateFind(find.id, { recovered: true, observations: [...state.observations, find.clue] });
+      updateFind(find.id, { recovered: true, observations: [...new Set([...state.observations, find.clue])] });
       setGuidance(`${find.name} moved to the examination table with its context recorded.`);
       return;
     }
@@ -811,14 +876,22 @@ export default function Home() {
   function placeGroup(zoneId: string) {
     const zone = reconstructionZones.find((item) => item.id === zoneId);
     if (!zone) return;
-    const candidate = recoveredFinds.find((find) =>
-      find.group.some((group) => zone.groups.includes(group)),
+    const candidateEvidence = recoveredFinds.filter((find) =>
+      zone.groups.some((group) => hasGroupedEvidence(findState, find, group)),
     );
-    if (!candidate) {
-      setGuidance(`More evidence is needed before placing ${zone.label}.`);
+    const physicallyAnchored =
+      zone.id === 'hearth'
+        ? hasConfirmedJoin(findState, ['1', '2', '3'])
+        : zone.id === 'collapse'
+          ? hasConfirmedJoin(findState, ['21', '22']) || hasConfirmedJoin(findState, ['7', '8'])
+          : true;
+    if (candidateEvidence.length < zone.required || !physicallyAnchored) {
+      setGuidance(
+        `${zone.label} needs ${zone.required} matching grouped ${zone.required === 1 ? 'find' : 'finds'}${physicallyAnchored ? '' : ' plus a physical join'} before the echo can be placed.`,
+      );
       return;
     }
-    setPlacements((current) => ({ ...current, [zoneId]: candidate.id }));
+    setPlacements((current) => ({ ...current, [zoneId]: candidateEvidence[0].id }));
     setGuidance(`${zone.label} appears as an interpretive reconstruction, not certain time travel.`);
   }
 
@@ -986,17 +1059,22 @@ export default function Home() {
             <Tabs value={screen} onValueChange={(value) => setScreen(value as Screen)} className="h-full">
               <TabsList className="mb-2 grid h-auto w-full grid-cols-4 gap-1 bg-muted/70 p-1 sm:grid-cols-7">
                 {[
-                  ['survey', 'Survey', Map],
-                  ['excavation', 'Excavate', Brush],
-                  ['examination', 'Examine', Search],
-                  ['joins', 'Join', Rotate3D],
-                  ['reconstruction', 'Rebuild', Layers3],
-                  ['interpretation', 'Interpret', Lightbulb],
-                  ['fieldwork', 'Fieldwork', Archive],
-                ].map(([value, label, Icon]) => (
-                  <TabsTrigger key={value as string} value={value as string} className="h-9 gap-1 px-1 text-xs sm:text-sm">
+                  { value: 'survey', label: 'Survey', Icon: Map },
+                  { value: 'excavation', label: 'Excavate', Icon: Brush },
+                  { value: 'examination', label: 'Examine', Icon: Search },
+                  { value: 'joins', label: 'Join', Icon: Rotate3D },
+                  { value: 'reconstruction', label: 'Rebuild', Icon: Layers3 },
+                  { value: 'interpretation', label: 'Interpret', Icon: Lightbulb },
+                  { value: 'fieldwork', label: 'Fieldwork', Icon: Archive },
+                ].map(({ value, label, Icon }) => (
+                  <TabsTrigger
+                    key={value}
+                    value={value}
+                    aria-label={label}
+                    className="h-9 gap-1 px-1 text-xs sm:text-sm"
+                  >
                     <Icon className="size-4" aria-hidden="true" />
-                    <span className="hidden sm:inline">{label as string}</span>
+                    <span className="hidden sm:inline">{label}</span>
                   </TabsTrigger>
                 ))}
               </TabsList>
@@ -1059,7 +1137,12 @@ export default function Home() {
                   title="Reconstruction space"
                   description="Place supported activity zones. Translucent forms show interpretation, while excavated reality remains visible beneath."
                 >
-                  <ReconstructionOverlay placements={placements} onPlace={placeGroup} />
+                  <ReconstructionOverlay
+                    placements={placements}
+                    recoveredFinds={recoveredFinds}
+                    findState={findState}
+                    onPlace={placeGroup}
+                  />
                 </BoardFrame>
               </TabsContent>
 
@@ -1067,6 +1150,7 @@ export default function Home() {
                 <InterpretationReview
                   scores={interpretationScores}
                   chosen={chosenInterpretation}
+                  coreComplete={coreComplete}
                   onChoose={setChosenInterpretation}
                 />
               </TabsContent>
@@ -1087,7 +1171,18 @@ export default function Home() {
             selectedState={selectedState}
             recoveredFinds={recoveredFinds}
             chosenScore={chosenScore}
+            coreComplete={coreComplete}
             setSelectedFindId={setSelectedFindId}
+            setScreen={setScreen}
+          />
+          <MobileContextDrawer
+            selectedFind={selectedFind}
+            selectedState={selectedState}
+            recoveredFinds={recoveredFinds}
+            chosenScore={chosenScore}
+            coreComplete={coreComplete}
+            setSelectedFindId={setSelectedFindId}
+            setScreen={setScreen}
           />
         </section>
       </div>
@@ -1398,15 +1493,29 @@ function Relationship({
 
 function ReconstructionOverlay({
   placements,
+  recoveredFinds,
+  findState,
   onPlace,
 }: {
   placements: Record<string, string>;
+  recoveredFinds: Find[];
+  findState: Record<string, FindState>;
   onPlace: (zoneId: string) => void;
 }) {
   return (
     <div className="absolute inset-0">
       {reconstructionZones.map((zone) => {
         const placed = Boolean(placements[zone.id]);
+        const groupedMatches = recoveredFinds.filter((find) =>
+          zone.groups.some((group) => hasGroupedEvidence(findState, find, group)),
+        ).length;
+        const physicallyAnchored =
+          zone.id === 'hearth'
+            ? hasConfirmedJoin(findState, ['1', '2', '3'])
+            : zone.id === 'collapse'
+              ? hasConfirmedJoin(findState, ['21', '22']) || hasConfirmedJoin(findState, ['7', '8'])
+              : true;
+        const ready = groupedMatches >= zone.required && physicallyAnchored;
         return (
           <button
             key={zone.id}
@@ -1415,12 +1524,17 @@ function ReconstructionOverlay({
             className={`absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-md border-2 px-3 py-2 text-sm font-semibold shadow-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
               placed
                 ? 'border-cyan-100 bg-cyan-500/35 text-white ring-4 ring-cyan-200/60'
+                : ready
+                  ? 'border-emerald-100 bg-emerald-700/55 text-white backdrop-blur-[2px] hover:bg-emerald-800/65'
                 : 'border-white/80 bg-black/45 text-white backdrop-blur-[2px] hover:bg-black/60'
             }`}
             style={{ left: `${zone.x}%`, top: `${zone.y}%` }}
           >
             {placed ? 'Echo: ' : 'Place: '}
             {zone.label}
+            <span className="ml-2 rounded bg-black/25 px-1.5 py-0.5 text-xs">
+              {ready ? 'ready' : `${groupedMatches}/${zone.required}`}
+            </span>
           </button>
         );
       })}
@@ -1442,6 +1556,7 @@ function ReconstructionOverlay({
 function InterpretationReview({
   scores,
   chosen,
+  coreComplete,
   onChoose,
 }: {
   scores: (Interpretation & {
@@ -1451,10 +1566,24 @@ function InterpretationReview({
     contradictions: Find[];
   })[];
   chosen: 'A' | 'B' | 'C';
+  coreComplete: boolean;
   onChoose: (id: 'A' | 'B' | 'C') => void;
 }) {
   return (
     <section className="grid h-full gap-3 overflow-hidden rounded-lg border border-border bg-card p-3 lg:grid-cols-3">
+      {coreComplete ? (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-emerald-950 lg:col-span-3">
+          <div className="flex items-start gap-3">
+            <ClipboardCheck className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+            <div>
+              <h2 className="font-semibold">Site assessment ready</h2>
+              <p className="mt-1 text-sm">
+                The reconstruction is complete enough to report a supported reading. The chosen explanation can be argued from multiple evidence types, while displaced finds and the bead keep the conclusion open.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {scores.map((interpretation) => (
         <article
           key={interpretation.id}
@@ -1544,62 +1673,169 @@ function EvidencePanel({
   selectedState,
   recoveredFinds,
   chosenScore,
+  coreComplete,
   setSelectedFindId,
+  setScreen,
 }: {
   selectedFind: Find;
   selectedState: FindState;
   recoveredFinds: Find[];
   chosenScore: Interpretation & { confidence: Confidence; score: number };
+  coreComplete: boolean;
   setSelectedFindId: (id: string) => void;
+  setScreen: (screen: Screen) => void;
 }) {
   return (
     <aside className="hidden min-h-0 border-l border-border bg-card lg:block">
       <div className="flex h-full flex-col">
-        <section className="border-b border-border p-4">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="font-semibold">Context Tray</h2>
-            <Badge variant="secondary">{recoveredFinds.length}/26 recovered</Badge>
-          </div>
-          <article className="mt-3 rounded-md border border-border bg-background p-3">
-            <h3 className="text-sm font-semibold">{selectedFind.name}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">{selectedFind.material} · {selectedFind.location}</p>
-            <Progress value={selectedState.exposed} aria-label={`${selectedFind.name} exposure`} className="mt-3" />
-            <dl className="mt-3 grid grid-cols-[80px_1fr] gap-1 text-xs">
-              <dt className="text-muted-foreground">Phase</dt>
-              <dd>{selectedFind.phase}</dd>
-              <dt className="text-muted-foreground">State</dt>
-              <dd>{selectedState.recovered ? 'Recovered' : 'In context'}</dd>
-              <dt className="text-muted-foreground">Cleaned</dt>
-              <dd>{selectedState.cleaned}%</dd>
-            </dl>
-          </article>
-          <div className="mt-3 rounded-md bg-muted p-3">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Active interpretation</p>
-            <p className="mt-1 text-sm font-medium">{chosenScore.label}</p>
-            <p className="text-xs text-muted-foreground">{chosenScore.confidence}</p>
-          </div>
-        </section>
-        <section className="min-h-0 flex-1 overflow-auto p-4">
-          <h3 className="text-sm font-semibold">Finds Storage</h3>
-          <div className="mt-3 space-y-2">
-            {recoveredFinds.length ? recoveredFinds.map((find) => (
-              <button
-                key={find.id}
-                type="button"
-                onClick={() => setSelectedFindId(find.id)}
-                className="w-full rounded-md border border-border bg-background p-3 text-left transition hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-              >
-                <span className="block text-sm font-medium">#{find.id} {find.name}</span>
-                <span className="text-xs text-muted-foreground">{find.location} · {find.material}</span>
-              </button>
-            )) : (
-              <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
-                Lift exposed material to begin the collection.
-              </p>
-            )}
-          </div>
-        </section>
+        <ContextContent
+          selectedFind={selectedFind}
+          selectedState={selectedState}
+          recoveredFinds={recoveredFinds}
+          chosenScore={chosenScore}
+          coreComplete={coreComplete}
+          setSelectedFindId={setSelectedFindId}
+          setScreen={setScreen}
+        />
       </div>
     </aside>
+  );
+}
+
+function MobileContextDrawer({
+  selectedFind,
+  selectedState,
+  recoveredFinds,
+  chosenScore,
+  coreComplete,
+  setSelectedFindId,
+  setScreen,
+}: {
+  selectedFind: Find;
+  selectedState: FindState;
+  recoveredFinds: Find[];
+  chosenScore: Interpretation & { confidence: Confidence; score: number };
+  coreComplete: boolean;
+  setSelectedFindId: (id: string) => void;
+  setScreen: (screen: Screen) => void;
+}) {
+  return (
+    <div className="pointer-events-none fixed inset-x-3 bottom-[88px] z-40 lg:hidden">
+      <Drawer swipeDirection="down" showSwipeHandle>
+        <DrawerTrigger
+          render={
+            <Button className="pointer-events-auto w-full shadow-lg" variant="default" />
+          }
+        >
+          <Archive aria-hidden="true" />
+          Context, finds, confidence
+        </DrawerTrigger>
+        <DrawerContent className="[--drawer-height:min(78dvh,680px)]">
+          <DrawerHeader>
+            <DrawerTitle>Context Tray</DrawerTitle>
+            <DrawerDescription>
+              Selected find, recovered storage, confidence, and quick navigation.
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="min-h-0 flex-1 overflow-auto">
+            <ContextContent
+              selectedFind={selectedFind}
+              selectedState={selectedState}
+              recoveredFinds={recoveredFinds}
+              chosenScore={chosenScore}
+              coreComplete={coreComplete}
+              setSelectedFindId={setSelectedFindId}
+              setScreen={setScreen}
+            />
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </div>
+  );
+}
+
+function ContextContent({
+  selectedFind,
+  selectedState,
+  recoveredFinds,
+  chosenScore,
+  coreComplete,
+  setSelectedFindId,
+  setScreen,
+}: {
+  selectedFind: Find;
+  selectedState: FindState;
+  recoveredFinds: Find[];
+  chosenScore: Interpretation & { confidence: Confidence; score: number };
+  coreComplete: boolean;
+  setSelectedFindId: (id: string) => void;
+  setScreen: (screen: Screen) => void;
+}) {
+  return (
+    <>
+      <section className="border-b border-border p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold">Context Tray</h2>
+          <Badge variant="secondary">{recoveredFinds.length}/26 recovered</Badge>
+        </div>
+        <article className="mt-3 rounded-md border border-border bg-background p-3">
+          <h3 className="text-sm font-semibold">{selectedFind.name}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{selectedFind.material} · {selectedFind.location}</p>
+          <Progress value={selectedState.exposed} aria-label={`${selectedFind.name} exposure`} className="mt-3" />
+          <dl className="mt-3 grid grid-cols-[94px_1fr] gap-1 text-xs">
+            <dt className="text-muted-foreground">Phase</dt>
+            <dd>{selectedFind.phase}</dd>
+            <dt className="text-muted-foreground">State</dt>
+            <dd>{selectedState.recovered ? 'Recovered' : 'In context'}</dd>
+            <dt className="text-muted-foreground">Cleaned</dt>
+            <dd>{selectedState.cleaned}%</dd>
+            <dt className="text-muted-foreground">Certainty</dt>
+            <dd>{selectedState.contextQuality}% context</dd>
+          </dl>
+        </article>
+        <div className="mt-3 rounded-md bg-muted p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Active interpretation</p>
+          <p className="mt-1 text-sm font-medium">{chosenScore.label}</p>
+          <p className="text-xs text-muted-foreground">{chosenScore.confidence}</p>
+        </div>
+        {coreComplete ? (
+          <div className="mt-3 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">
+            Site assessment ready. Confidence is supported, but the bead remains unresolved.
+          </div>
+        ) : null}
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {[
+            ['examination', 'Examine'],
+            ['joins', 'Join'],
+            ['reconstruction', 'Rebuild'],
+            ['interpretation', 'Interpret'],
+          ].map(([target, label]) => (
+            <Button key={target} variant="outline" size="sm" onClick={() => setScreen(target as Screen)}>
+              {label}
+            </Button>
+          ))}
+        </div>
+      </section>
+      <section className="min-h-0 flex-1 overflow-auto p-4">
+        <h3 className="text-sm font-semibold">Finds Storage</h3>
+        <div className="mt-3 space-y-2">
+          {recoveredFinds.length ? recoveredFinds.map((find) => (
+            <button
+              key={find.id}
+              type="button"
+              onClick={() => setSelectedFindId(find.id)}
+              className="w-full rounded-md border border-border bg-background p-3 text-left transition hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              <span className="block text-sm font-medium">#{find.id} {find.name}</span>
+              <span className="text-xs text-muted-foreground">{find.location} · {find.material}</span>
+            </button>
+          )) : (
+            <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+              Lift exposed material to begin the collection.
+            </p>
+          )}
+        </div>
+      </section>
+    </>
   );
 }
