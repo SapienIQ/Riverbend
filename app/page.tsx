@@ -123,13 +123,14 @@ const tools: {
   label: string;
   icon: ElementType;
   hint: string;
+  bestUse: string;
 }[] = [
-  { id: 'brush', label: 'Brush', icon: Brush, hint: 'Clears loose soil without damage.' },
-  { id: 'pick', label: 'Fine pick', icon: Hammer, hint: 'Works compact fill near hard edges.' },
-  { id: 'stabilize', label: 'Stabilize', icon: ShieldCheck, hint: 'Secures fragile traces before lifting.' },
-  { id: 'lift', label: 'Lift', icon: Hand, hint: 'Recovers exposed and stable finds.' },
-  { id: 'light', label: 'Raking light', icon: SunMedium, hint: 'Reveals marks, soot, wear, and residues.' },
-  { id: 'join', label: 'Join', icon: Rotate3D, hint: 'Compares breaks and snaps matching fragments.' },
+  { id: 'brush', label: 'Brush', icon: Brush, hint: 'Gentle and safe. Clears loose soil slowly.', bestUse: 'Best when a clue is just appearing or looks fragile.' },
+  { id: 'pick', label: 'Fine pick', icon: Hammer, hint: 'Fast on hard-packed edges. Risky on loose or fragile traces.', bestUse: 'Best for pit cuts, threshold packing, and collapse debris.' },
+  { id: 'stabilize', label: 'Stabilize', icon: ShieldCheck, hint: 'Locks fragile clues in place before you lift.', bestUse: 'Best when the selected clue shows a safe marker or fragile warning.' },
+  { id: 'lift', label: 'Lift', icon: Hand, hint: 'Collects a clue once enough soil is cleared.', bestUse: 'Best when the surface says ready to lift.' },
+  { id: 'light', label: 'Raking light', icon: SunMedium, hint: 'Reveals soot, stain, fibers, polish, and break lines.', bestUse: 'Best at the inspection table after a find is recovered.' },
+  { id: 'join', label: 'Join', icon: Rotate3D, hint: 'Sends matching fragments to the sherd bench.', bestUse: 'Best when two recovered pieces seem to share an edge.' },
 ];
 
 const finds: Find[] = [
@@ -701,6 +702,90 @@ function clamp(value: number, min = 0, max = 100) {
   return Math.min(max, Math.max(min, value));
 }
 
+function toolById(id: Tool) {
+  return tools.find((tool) => tool.id === id) ?? tools[0];
+}
+
+function groupLabel(group: string) {
+  const labels: Record<string, string> = {
+    cooking: 'Cooking',
+    textile: 'Textile',
+    closure: 'Closure',
+    disturbance: 'Disturbance',
+    collapse: 'Collapse',
+    repair: 'Repair',
+    storage: 'Storage',
+    trade: 'Trade',
+  };
+  return labels[group] ?? group;
+}
+
+function primaryGroups(find: Find) {
+  const playableGroups = ['cooking', 'textile', 'closure', 'disturbance', 'collapse'];
+  const primary = find.group.filter((group) => playableGroups.includes(group));
+  return primary.length ? primary : find.group.slice(0, 1);
+}
+
+function visibleClues(find: Find, state: FindState) {
+  const unlocked = state.observations.filter(
+    (observation) => !observation.startsWith('Grouped as '),
+  );
+  const base = unlocked.length ? unlocked : [find.clue];
+  const status =
+    state.contextQuality < 82
+      ? ['Too much pressure blurred part of the story.']
+      : state.stabilized && find.fragile
+        ? ['Fragile trace protected.']
+        : [];
+  return [...status, ...base].slice(0, 3);
+}
+
+function meaningForFind(find: Find) {
+  const shortLabels: Record<Interpretation['id'], string> = {
+    A: 'sudden leave',
+    B: 'planned closure',
+    C: 'later disturbance',
+  };
+  const supported = interpretations
+    .filter((interpretation) => find.supports[interpretation.id] === 'Supports')
+    .map((interpretation) => shortLabels[interpretation.id])
+    .slice(0, 2);
+  const complicated = interpretations
+    .filter((interpretation) => find.supports[interpretation.id] === 'Weakens' || find.supports[interpretation.id] === 'Complicates')
+    .map((interpretation) => shortLabels[interpretation.id])
+    .slice(0, 1);
+  if (supported.length && complicated.length) {
+    return `Helps ${supported.join(' and ')}, but complicates ${complicated[0]}.`;
+  }
+  if (supported.length) return `Helps ${supported.join(' and ')}.`;
+  if (complicated.length) return `This clue is out of place for ${complicated[0]}.`;
+  return 'Useful when grouped with nearby clues.';
+}
+
+function joinHint(find: Find, findState: Record<string, FindState>) {
+  if (!find.joins.length) return 'No physical join. Use it as an activity clue.';
+  const recovered = find.joins
+    .map((id) => finds.find((item) => item.id === id))
+    .filter((item): item is Find => item !== undefined && findState[item.id]?.recovered);
+  if (recovered.length) return `Try the seam with ${recovered.map((item) => `#${item.id}`).join(', ')}.`;
+  return `A matching edge exists, but the other piece is still in the soil.`;
+}
+
+function joinHintFromRecovered(find: Find, recoveredFinds: Find[]) {
+  if (!find.joins.length) return 'No seam to test. Use it as an activity clue.';
+  const recoveredIds = new Set(recoveredFinds.map((item) => item.id));
+  const recovered = find.joins.filter((id) => recoveredIds.has(id));
+  if (recovered.length) return `Try the seam with #${recovered[0]}.`;
+  return 'The matching edge is still buried.';
+}
+
+function reconstructionPrompt(zone: (typeof reconstructionZones)[number], groupedMatches: number, physicallyAnchored: boolean) {
+  if (!physicallyAnchored) return 'Confirm a physical join';
+  const missing = Math.max(0, zone.required - groupedMatches);
+  if (!missing) return 'Ready';
+  return `Find ${missing === 1 ? 'one more' : `${missing} more`} ${groupLabel(zone.groups[0]).toLowerCase()} clue${missing === 1 ? '' : 's'}`;
+}
+
 function hasGroupedEvidence(findState: Record<string, FindState>, find: Find, group: string) {
   return findState[find.id]?.groups.includes(group);
 }
@@ -719,7 +804,7 @@ export default function Home() {
   const [findState, setFindState] = useState<Record<string, FindState>>(initialFindState);
   const [placements, setPlacements] = useState<Record<string, string>>({});
   const [chosenInterpretation, setChosenInterpretation] = useState<'A' | 'B' | 'C'>('B');
-  const [guidance, setGuidance] = useState('A hard edge is emerging near the hearth.');
+  const [guidance, setGuidance] = useState('A hard edge is peeking through by the hearth.');
   const [saved, setSaved] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -899,14 +984,14 @@ export default function Home() {
       playCue(activeTool);
       setGuidance(
         state.exposed + amount >= 70
-          ? `${find.name} is exposed enough to lift. Its context has been recorded.`
+          ? `${find.name}: ready to lift.`
           : activeTool === 'brush'
-            ? 'Loose soil clears from the edge without disturbing the object.'
+            ? 'Gentle pass. The edge is clearer.'
             : compactContext
-              ? 'The fine pick works compact fill quickly around the hard edge.'
+              ? 'Clean tap. Packed soil gives way.'
               : riskPenalty
-                ? 'The pick moved faster, but it nicked a fragile context.'
-                : 'The fine pick exposes the object faster, with a little more risk.',
+                ? 'Too much pressure. The clue is still useful, but less sure.'
+                : 'Fast scrape. Watch the pressure.',
       );
       return;
     }
@@ -917,13 +1002,13 @@ export default function Home() {
         observations: [...new Set([...state.observations, 'Stabilized before lifting'])],
       });
       playCue('stabilize');
-      setGuidance(`${find.name} is stabilized. Fragile context can be preserved.`);
+      setGuidance(`${find.name}: fragile trace protected.`);
       return;
     }
     if (activeTool === 'lift') {
       if (state.exposed < 70) {
         playCue('blocked');
-        setGuidance('Brush around the object before lifting.');
+        setGuidance('Not yet. Brush until the edge is ready.');
         return;
       }
       if (find.fragile && !state.stabilized) {
@@ -933,12 +1018,12 @@ export default function Home() {
           observations: [...new Set([...state.observations, 'Recovered with reduced contextual certainty'])],
         });
         playCue('blocked');
-        setGuidance(`${find.name} lifted, but some certainty was lost because it was fragile.`);
+        setGuidance(`${find.name} lifted, but the fragile edge lost clarity.`);
         return;
       }
       updateFind(find.id, { recovered: true, observations: [...new Set([...state.observations, find.clue])] });
       playCue('lift');
-      setGuidance(`${find.name} moved to the examination table with its context recorded.`);
+      setGuidance(`${find.name} is in your tray.`);
       return;
     }
     if (activeTool === 'light') {
@@ -949,6 +1034,16 @@ export default function Home() {
       playCue('clean');
       setGuidance(find.clue);
       setScreen('examination');
+      return;
+    }
+    if (activeTool === 'join') {
+      if (!state.recovered) {
+        playCue('blocked');
+        setGuidance('Lift it first, then test the seam.');
+        return;
+      }
+      setGuidance(joinHint(find, findState));
+      setScreen('joins');
     }
   }
 
@@ -976,20 +1071,20 @@ export default function Home() {
     setGuidance(
       mode === 'fieldwork'
         ? `${activeFieldworkHistory.name} tray is ready. ${activeFieldworkHistory.objective}`
-        : 'A representative tray is ready for joining, grouping, and reconstruction.',
+        : 'A starter tray is ready. Try joining a seam.',
     );
     playCue('lift');
   }
 
   function joinFinds(find: Find) {
     if (!find.joins.length) {
-      setGuidance('This object has no physical join candidate. Try grouping it by activity instead.');
+      setGuidance('No broken edge to match. Use it as an activity clue.');
       playCue('blocked');
       return;
     }
     const availableJoin = find.joins.find((id) => findState[id]?.recovered);
     if (!availableJoin) {
-      setGuidance('A matching break is likely, but the other piece has not been recovered.');
+      setGuidance('The seam wants another piece. Keep digging.');
       playCue('blocked');
       return;
     }
@@ -1001,16 +1096,15 @@ export default function Home() {
       joinedWith: [...new Set([...findState[availableJoin].joinedWith, find.id])],
       observations: [...new Set([...findState[availableJoin].observations, 'Physical join confirmed'])],
     });
-    setGuidance(`${find.name} fits with ${finds.find((item) => item.id === availableJoin)?.name}. A physical join is confirmed.`);
+    setGuidance(`Click. ${find.name} fits with ${finds.find((item) => item.id === availableJoin)?.name}.`);
     playCue('join');
   }
 
   function groupFind(find: Find, group: string) {
     updateFind(find.id, {
       groups: [...new Set([...findState[find.id].groups, group])],
-      observations: [...new Set([...findState[find.id].observations, `Grouped as ${group}`])],
     });
-    setGuidance(`${find.name} now contributes to the ${group} interpretation.`);
+    setGuidance(`${find.name} now counts toward ${groupLabel(group)}.`);
     playCue('stabilize');
   }
 
@@ -1028,13 +1122,13 @@ export default function Home() {
           : true;
     if (candidateEvidence.length < zone.required || !physicallyAnchored) {
       setGuidance(
-        `${zone.label} needs ${zone.required} matching grouped ${zone.required === 1 ? 'find' : 'finds'}${physicallyAnchored ? '' : ' plus a physical join'} before the echo can be placed.`,
+        reconstructionPrompt(zone, candidateEvidence.length, physicallyAnchored),
       );
       playCue('blocked');
       return;
     }
     setPlacements((current) => ({ ...current, [zoneId]: candidateEvidence[0].id }));
-    setGuidance(`${zone.label} appears as an interpretive reconstruction, not certain time travel.`);
+    setGuidance(`${zone.label} takes shape.`);
     playCue('place');
   }
 
@@ -1075,7 +1169,7 @@ export default function Home() {
     setPlacements({});
     setChosenInterpretation('B');
     setScreen('excavation');
-    setGuidance('Returned to the authored Riverbend expedition layout.');
+    setGuidance('Back to the main Riverbend dig.');
     playCue('place');
   }
 
@@ -1310,12 +1404,19 @@ export default function Home() {
                 <ExaminationTable
                   find={selectedFind}
                   state={selectedState}
+                  findState={findState}
                   onClean={() => {
                     updateFind(selectedFind.id, {
                       cleaned: clamp(selectedState.cleaned + 25),
                       observations: [...new Set([...selectedState.observations, selectedFind.clue])],
                     });
+                    playCue('clean');
                     setGuidance(selectedFind.clue);
+                  }}
+                  onGroup={groupFind}
+                  onJoin={() => {
+                    setGuidance(joinHint(selectedFind, findState));
+                    setScreen('joins');
                   }}
                 />
               </TabsContent>
@@ -1400,34 +1501,47 @@ function ToolTray({
   recommendedTool: Tool;
   onSelect: (tool: Tool) => void;
 }) {
+  const active = toolById(activeTool);
+  const recommended = toolById(recommendedTool);
   return (
-    <aside className="order-2 flex min-h-[76px] items-center gap-2 overflow-x-auto border-t border-border bg-card px-2 py-2 lg:order-none lg:min-h-0 lg:flex-col lg:justify-start lg:border-r lg:border-t-0 lg:px-2 lg:pt-3">
+    <aside className="order-2 flex min-h-[96px] items-center gap-2 overflow-x-auto border-t border-border bg-card px-2 py-2 lg:order-none lg:min-h-0 lg:flex-col lg:justify-start lg:border-r lg:border-t-0 lg:px-2 lg:pt-3">
       {tools.map((tool) => {
         const Icon = tool.icon;
-        const active = activeTool === tool.id;
-        const recommended = recommendedTool === tool.id && !active;
+        const isActive = activeTool === tool.id;
+        const isRecommended = recommendedTool === tool.id && !isActive;
         return (
-          <button
-            key={tool.id}
-            type="button"
-            aria-pressed={active}
-            aria-label={`${tool.label}. ${tool.hint}${recommended ? ' Recommended now.' : ''}`}
-            title={`${tool.label}: ${tool.hint}`}
-            onClick={() => onSelect(tool.id)}
-            className={`relative flex min-h-14 min-w-14 flex-col items-center justify-center gap-1 rounded-md border px-2 text-[11px] font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:w-full ${
-              active
-                ? 'translate-y-[-2px] border-primary bg-primary text-primary-foreground shadow-md'
-                : recommended
-                  ? 'border-sky-600 bg-sky-50 text-sky-950 ring-2 ring-sky-300'
-                  : 'border-border bg-background text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            <Icon className="size-5" aria-hidden="true" />
-            <span>{tool.label}</span>
-            {recommended ? <span className="absolute -right-1 -top-1 size-3 rounded-full bg-sky-500" /> : null}
-          </button>
+          <div key={tool.id} className="group relative lg:w-full">
+            <button
+              type="button"
+              aria-pressed={isActive}
+              aria-label={`${tool.label}. ${tool.hint}${isRecommended ? ' Recommended now.' : ''}`}
+              title={`${tool.label}: ${tool.hint}`}
+              onClick={() => onSelect(tool.id)}
+              className={`relative flex min-h-14 min-w-14 flex-col items-center justify-center gap-1 rounded-md border px-2 text-[11px] font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:w-full ${
+                isActive
+                  ? 'translate-y-[-2px] border-primary bg-primary text-primary-foreground shadow-md'
+                  : isRecommended
+                    ? 'border-sky-600 bg-sky-50 text-sky-950 ring-2 ring-sky-300'
+                    : 'border-border bg-background text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              <Icon className="size-5" aria-hidden="true" />
+              <span>{tool.label}</span>
+              {isRecommended ? <span className="absolute -right-1 -top-1 size-3 rounded-full bg-sky-500" /> : null}
+            </button>
+            <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-foreground px-3 py-2 text-xs text-background shadow-lg group-focus-within:block group-hover:block lg:bottom-auto lg:left-full lg:top-1/2 lg:ml-2 lg:-translate-x-0 lg:-translate-y-1/2">
+              <span className="font-semibold">{tool.label}:</span> {tool.hint}
+            </span>
+          </div>
         );
       })}
+      <div className="min-w-[220px] rounded-md border border-border bg-background px-3 py-2 text-xs lg:min-w-0">
+        <p className="font-semibold">{active.label}</p>
+        <p className="mt-0.5 text-muted-foreground">{active.bestUse}</p>
+        {activeTool !== recommendedTool ? (
+          <p className="mt-1 text-sky-800">Try {recommended.label}: {recommended.hint}</p>
+        ) : null}
+      </div>
     </aside>
   );
 }
@@ -1590,12 +1704,20 @@ function FindHotspots({
 function ExaminationTable({
   find,
   state,
+  findState,
   onClean,
+  onGroup,
+  onJoin,
 }: {
   find: Find;
   state: FindState;
+  findState: Record<string, FindState>;
   onClean: () => void;
+  onGroup: (find: Find, group: string) => void;
+  onJoin: () => void;
 }) {
+  const clues = visibleClues(find, state);
+  const groups = primaryGroups(find);
   return (
     <section className="grid h-full gap-3 rounded-lg border border-border bg-card p-3 sm:grid-cols-[minmax(0,1fr)_280px]">
       <div className="relative min-h-0 overflow-hidden rounded-lg border border-border bg-[radial-gradient(circle_at_45%_35%,#efe0be,#9c7850_58%,#33291f)]">
@@ -1625,34 +1747,57 @@ function ExaminationTable({
         </div>
       </div>
       <aside className="min-h-0 overflow-auto rounded-lg border border-border bg-background p-3">
-        <h3 className="font-semibold">Material Evidence</h3>
-        <dl className="mt-3 grid grid-cols-[88px_1fr] gap-2 text-sm">
-          <dt className="text-muted-foreground">Use</dt>
-          <dd>{find.use}</dd>
-          <dt className="text-muted-foreground">Condition</dt>
-          <dd>{find.condition}</dd>
-          <dt className="text-muted-foreground">Context</dt>
-          <dd>{find.location}</dd>
-          <dt className="text-muted-foreground">Relation</dt>
-          <dd>{find.relationships}</dd>
-        </dl>
+        <h3 className="font-semibold">Inspect The Clue</h3>
+        <div className="mt-3 grid gap-2">
+          <section className="rounded-md border border-border bg-card p-3">
+            <h4 className="text-sm font-semibold">What you can see</h4>
+            <div className="mt-2 space-y-1">
+              {clues.map((clue) => (
+                <p key={clue} className="rounded bg-muted px-2 py-1.5 text-sm">
+                  {clue}
+                </p>
+              ))}
+            </div>
+          </section>
+          <section className="rounded-md border border-border bg-card p-3">
+            <h4 className="text-sm font-semibold">What it can join</h4>
+            <p className="mt-2 text-sm text-muted-foreground">{joinHint(find, findState)}</p>
+            <Button className="mt-3 w-full" size="sm" variant="outline" onClick={onJoin}>
+              <Rotate3D aria-hidden="true" />
+              Try the bench
+            </Button>
+          </section>
+          <section className="rounded-md border border-border bg-card p-3">
+            <h4 className="text-sm font-semibold">What it might mean</h4>
+            <p className="mt-2 text-sm text-muted-foreground">{meaningForFind(find)}</p>
+            <div className="mt-3 flex flex-wrap gap-1">
+              {groups.map((group) => (
+                <Button key={group} size="xs" variant="secondary" onClick={() => onGroup(find, group)}>
+                  {groupLabel(group)}
+                </Button>
+              ))}
+            </div>
+          </section>
+        </div>
         <Button className="mt-4 w-full" onClick={onClean}>
           <Eye aria-hidden="true" />
-          Rotate, light, clean
+          Light and turn
         </Button>
-        <div className="mt-4 space-y-2">
-          {state.observations.length ? (
-            state.observations.map((observation) => (
-              <p key={observation} className="rounded-md bg-muted px-3 py-2 text-sm">
-                {observation}
-              </p>
-            ))
-          ) : (
-            <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-              Clean or light the surface to reveal diagnostic marks.
-            </p>
-          )}
-        </div>
+        <details className="mt-4 rounded-md border border-border bg-muted p-3 text-sm">
+          <summary className="cursor-pointer font-semibold">Field notes</summary>
+          <dl className="mt-3 grid grid-cols-[76px_1fr] gap-2 text-xs">
+            <dt className="text-muted-foreground">Use</dt>
+            <dd>{find.use}</dd>
+            <dt className="text-muted-foreground">Material</dt>
+            <dd>{find.material}</dd>
+            <dt className="text-muted-foreground">Context</dt>
+            <dd>{find.location}</dd>
+            <dt className="text-muted-foreground">Phase</dt>
+            <dd>{find.phase}</dd>
+            <dt className="text-muted-foreground">Detail</dt>
+            <dd>{find.relationships}</dd>
+          </dl>
+        </details>
       </aside>
     </section>
   );
@@ -1672,8 +1817,10 @@ function JoinWorkspace({
   const recoveredIds = new Set(recoveredFinds.map((find) => find.id));
   const pairOptions = joinPairs.filter((pair) => pair.ids.every((id) => recoveredIds.has(id)));
   const [activePairId, setActivePairId] = useState(pairOptions[0]?.id ?? joinPairs[0].id);
+  const [groupingFindId, setGroupingFindId] = useState(recoveredFinds[0]?.id ?? '1');
   const activePair = pairOptions.find((pair) => pair.id === activePairId) ?? pairOptions[0] ?? joinPairs[0];
   const pairFinds = activePair.ids.map((id) => finds.find((find) => find.id === id) ?? finds[0]) as [Find, Find];
+  const groupingFind = recoveredFinds.find((find) => find.id === groupingFindId) ?? recoveredFinds[0];
   const [transforms, setTransforms] = useState<Record<string, FragmentTransform>>({
     [activePair.ids[0]]: { x: 28, y: 50, rotation: -16 },
     [activePair.ids[1]]: { x: 68, y: 50, rotation: 18 },
@@ -1732,6 +1879,7 @@ function JoinWorkspace({
               >
                 {joined ? <CheckCircle2 aria-hidden="true" /> : <Rotate3D aria-hidden="true" />}
                 {pair.label}
+                <span className="sr-only">{groupLabel(pair.group)}</span>
               </Button>
             );
           })}
@@ -1766,18 +1914,35 @@ function JoinWorkspace({
             {snapReady || alreadyJoined ? 'Confirm snap' : 'Align to seam'}
           </Button>
         </div>
-        <div className="mt-3 max-h-28 overflow-auto rounded-md border border-border bg-card p-2">
-          <h3 className="text-xs font-semibold uppercase text-muted-foreground">Activity grouping</h3>
-          <div className="mt-2 flex flex-wrap gap-1">
-          {recoveredFinds.map((find) => (
-            find.group.slice(0, 2).map((group) => (
-              <Button key={`${find.id}-${group}`} size="xs" variant="secondary" onClick={() => onGroup(find, group)}>
-                #{find.id} {group}
-              </Button>
-            ))
-          ))}
+        <div className="mt-3 rounded-md border border-border bg-card p-2">
+          <h3 className="text-xs font-semibold uppercase text-muted-foreground">Activity clue</h3>
+          {groupingFind ? (
+            <>
+              <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
+                {recoveredFinds.map((find) => (
+                  <Button
+                    key={find.id}
+                    size="xs"
+                    variant={groupingFind.id === find.id ? 'default' : 'outline'}
+                    onClick={() => setGroupingFindId(find.id)}
+                  >
+                    #{find.id}
+                  </Button>
+                ))}
+              </div>
+              <p className="mt-2 text-sm font-medium">{groupingFind.name}</p>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {primaryGroups(groupingFind).map((group) => (
+                  <Button key={group} size="xs" variant="secondary" onClick={() => onGroup(groupingFind, group)}>
+                    {groupLabel(group)}
+                  </Button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">Lift a clue before grouping it.</p>
+          )}
           </div>
-        </div>
       </div>
       <aside className="min-h-0 overflow-auto rounded-lg border border-border bg-background p-3">
         <h3 className="font-semibold">Confirmed Relationships</h3>
@@ -1896,6 +2061,7 @@ function ReconstructionOverlay({
               ? hasConfirmedJoin(findState, ['21', '22']) || hasConfirmedJoin(findState, ['7', '8'])
               : true;
         const ready = groupedMatches >= zone.required && physicallyAnchored;
+        const prompt = reconstructionPrompt(zone, groupedMatches, physicallyAnchored);
         return (
           <button
             key={zone.id}
@@ -1912,8 +2078,8 @@ function ReconstructionOverlay({
           >
             {placed ? 'Echo: ' : 'Place: '}
             {zone.label}
-            <span className="ml-2 rounded bg-black/25 px-1.5 py-0.5 text-xs">
-              {ready ? 'ready' : `${groupedMatches}/${zone.required}`}
+            <span className="ml-2 rounded bg-black/25 px-1.5 py-0.5 text-xs normal-case">
+              {prompt}
             </span>
           </button>
         );
@@ -1991,7 +2157,7 @@ function InterpretationReview({
             <div>
               <h2 className="font-semibold">Site assessment ready</h2>
               <p className="mt-1 text-sm">
-                The reconstruction is complete enough to report a supported reading. The chosen explanation can be argued from multiple evidence types, while displaced finds and the bead keep the conclusion open.
+                You have enough clues to make a call. Pick the story that fits, then keep one doubt alive.
               </p>
             </div>
           </div>
@@ -2014,19 +2180,19 @@ function InterpretationReview({
           <Button className="mt-4 w-full" variant={chosen === interpretation.id ? 'default' : 'outline'} onClick={() => onChoose(interpretation.id)}>
             Advance this reading
           </Button>
-          <h3 className="mt-4 text-sm font-semibold">Supporting evidence</h3>
+          <h3 className="mt-4 text-sm font-semibold">Why it works</h3>
           <ul className="mt-2 space-y-1 text-sm">
-            {interpretation.support.slice(0, 6).map((find) => (
+            {interpretation.support.slice(0, 3).map((find) => (
               <li key={find.id}>#{find.id} {find.name}</li>
             ))}
             {!interpretation.support.length ? <li className="text-muted-foreground">Recover more evidence.</li> : null}
           </ul>
-          <h3 className="mt-4 text-sm font-semibold">Complications</h3>
+          <h3 className="mt-4 text-sm font-semibold">What nags at it</h3>
           <ul className="mt-2 space-y-1 text-sm">
-            {interpretation.contradictions.slice(0, 5).map((find) => (
+            {interpretation.contradictions.slice(0, 2).map((find) => (
               <li key={find.id}>#{find.id} {find.name}</li>
             ))}
-            {!interpretation.contradictions.length ? <li className="text-muted-foreground">No contradictions recovered yet.</li> : null}
+            {!interpretation.contradictions.length ? <li className="text-muted-foreground">Nothing recovered yet pushes back.</li> : null}
           </ul>
           <p className="mt-4 rounded-md bg-muted p-3 text-sm">{interpretation.uncertainty}</p>
         </article>
@@ -2158,13 +2324,13 @@ function MobileContextDrawer({
           }
         >
           <Archive aria-hidden="true" />
-          Context, finds, confidence
+          Next move and finds
         </DrawerTrigger>
         <DrawerContent className="[--drawer-height:min(78dvh,680px)]">
           <DrawerHeader>
-            <DrawerTitle>Context Tray</DrawerTitle>
+            <DrawerTitle>Next Move</DrawerTitle>
             <DrawerDescription>
-              Selected find, recovered storage, confidence, and quick navigation.
+              Current clue, useful action, confidence, and recovered finds.
             </DrawerDescription>
           </DrawerHeader>
           <div className="min-h-0 flex-1 overflow-auto">
@@ -2205,26 +2371,31 @@ function ContextContent({
     <>
       <section className="border-b border-border p-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="font-semibold">Context Tray</h2>
+          <h2 className="font-semibold">Next Move</h2>
           <Badge variant="secondary">{recoveredFinds.length}/26 recovered</Badge>
         </div>
         <article className="mt-3 rounded-md border border-border bg-background p-3">
           <h3 className="text-sm font-semibold">{selectedFind.name}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{selectedFind.material} · {selectedFind.location}</p>
           <Progress value={selectedState.exposed} aria-label={`${selectedFind.name} exposure`} className="mt-3" />
-          <dl className="mt-3 grid grid-cols-[94px_1fr] gap-1 text-xs">
-            <dt className="text-muted-foreground">Phase</dt>
-            <dd>{selectedFind.phase}</dd>
-            <dt className="text-muted-foreground">State</dt>
-            <dd>{selectedState.recovered ? 'Recovered' : 'In context'}</dd>
-            <dt className="text-muted-foreground">Cleaned</dt>
-            <dd>{selectedState.cleaned}%</dd>
-            <dt className="text-muted-foreground">Certainty</dt>
-            <dd>{selectedState.contextQuality}% context</dd>
-          </dl>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {selectedState.recovered
+              ? joinHintFromRecovered(selectedFind, recoveredFinds)
+              : selectedState.exposed >= 70
+                ? 'Ready to lift.'
+                : selectedFind.fragile && !selectedState.stabilized
+                  ? 'Protect it before lifting.'
+                  : 'Brush until the edge is clear.'}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1">
+            {primaryGroups(selectedFind).map((group) => (
+              <Badge key={group} variant={selectedState.groups.includes(group) ? 'default' : 'outline'}>
+                {groupLabel(group)}
+              </Badge>
+            ))}
+          </div>
         </article>
         <div className="mt-3 rounded-md bg-muted p-3">
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Active interpretation</p>
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Current read</p>
           <p className="mt-1 text-sm font-medium">{chosenScore.label}</p>
           <p className="text-xs text-muted-foreground">{chosenScore.confidence}</p>
         </div>
