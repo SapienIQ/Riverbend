@@ -937,10 +937,12 @@ export default function Home() {
     interpretationScores[1];
   const activeFieldworkHistory =
     fieldworkHistories.find((history) => history.id === fieldworkHistoryId) ?? fieldworkHistories[0];
-  const activeDigFind =
-    finds.find((find) => find.id === selectedFindId && find.locationId === excavationFocus && !findState[find.id]?.recovered) ??
-    finds.find((find) => find.locationId === excavationFocus && !findState[find.id]?.recovered) ??
-    selectedFind;
+  const selectedDigTarget = finds.find(
+    (find) => find.id === selectedFindId && find.locationId === excavationFocus && !findState[find.id]?.recovered,
+  );
+  const nextDigTarget = finds.find((find) => find.locationId === excavationFocus && !findState[find.id]?.recovered);
+  const hasDigTarget = Boolean(selectedDigTarget ?? nextDigTarget);
+  const activeDigFind = selectedDigTarget ?? nextDigTarget ?? selectedFind;
   const activeDigState = findState[activeDigFind.id];
   const coreComplete =
     recoveredFinds.length >= 11 &&
@@ -959,13 +961,13 @@ export default function Home() {
 
   const recommendedTool: Tool = activeDigFind.fragile && !activeDigState.stabilized ? 'stabilize' : activeDigState.exposed < 70 ? 'brush' : activeDigState.recovered ? 'light' : 'lift';
   const availableTools = useMemo<Tool[]>(() => {
-    if (screen !== 'excavation') return [];
+    if (screen !== 'excavation' || !hasDigTarget) return [];
     const toolSet = new Set<Tool>(['brush']);
     if (activeDigState.exposed > 35 || tutorialStep === 'freePlay') toolSet.add('pick');
     if (activeDigFind.fragile && !activeDigState.stabilized) toolSet.add('stabilize');
     if (activeDigState.exposed >= 70 && !activeDigState.recovered) toolSet.add('lift');
     return tools.map((tool) => tool.id).filter((tool) => toolSet.has(tool));
-  }, [activeDigFind.fragile, activeDigState.exposed, activeDigState.recovered, activeDigState.stabilized, screen, tutorialStep]);
+  }, [activeDigFind.fragile, activeDigState.exposed, activeDigState.recovered, activeDigState.stabilized, hasDigTarget, screen, tutorialStep]);
   const currentTool = availableTools.includes(activeTool) ? activeTool : availableTools[0] ?? activeTool;
   const visibleScreens = useMemo(
     () => [
@@ -1009,6 +1011,19 @@ export default function Home() {
             : tutorialStep === 'firstBuild'
               ? 'Build the room'
               : 'Choose the story';
+  const headerGuidance =
+    screen === 'excavation' && !hasDigTarget
+      ? tutorialStep === 'firstBuild'
+        ? 'This patch is clear. Build the room from what you found.'
+        : tutorialStep === 'firstMatch'
+          ? 'This patch is clear. Match the pieces you found.'
+          : recoveredFinds.length
+            ? 'This patch is clear. Look at your clues or choose another spot.'
+            : guidance
+      : guidance;
+  const excavationDescription = hasDigTarget
+    ? `${toolById(currentTool).label} selected. Only this spot is active for now.`
+    : 'This patch is clear. No tool needed here right now.';
 
   function followNextAction() {
     if (tutorialStep === 'firstBrush') {
@@ -1038,10 +1053,10 @@ export default function Home() {
       return;
     }
     if (tutorialStep === 'firstLook') {
-      if (screen === 'excavation') {
+      if (screen === 'excavation' && hasDigTarget) {
         actOnFind(activeDigFind, activeDigState.exposed >= 70 ? 'lift' : 'brush');
       } else {
-        setScreen('excavation');
+        setScreen('examination');
       }
       return;
     }
@@ -1540,7 +1555,7 @@ export default function Home() {
               </Badge>
             </div>
             <p className="truncate text-xs text-muted-foreground sm:text-sm">
-              {guidance}
+              {headerGuidance}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -1660,7 +1675,7 @@ export default function Home() {
                   mode={mode}
                   fieldworkLabel={activeFieldworkHistory.scenarioLabel}
                   title="Dig here"
-                  description={`${toolById(currentTool).label} selected. Only this spot is active for now.`}
+                  description={excavationDescription}
                 >
                   <FindHotspots
                     mode={mode}
@@ -1670,6 +1685,7 @@ export default function Home() {
                     findState={findState}
                     selectedFindId={selectedFindId}
                     onAct={actOnFind}
+                    onSelect={setSelectedFindId}
                   />
                 </BoardFrame>
               </TabsContent>
@@ -1894,6 +1910,7 @@ function FindHotspots({
   findState,
   selectedFindId,
   onAct,
+  onSelect,
 }: {
   mode: 'expedition' | 'fieldwork';
   activeTool: Tool;
@@ -1902,6 +1919,7 @@ function FindHotspots({
   findState: Record<string, FindState>;
   selectedFindId: string;
   onAct: (find: Find) => void;
+  onSelect: (id: string) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const dragTool = activeTool === 'brush' || activeTool === 'pick';
@@ -1938,24 +1956,28 @@ function FindHotspots({
             key={find.id}
             type="button"
             onPointerDown={(event) => {
-              if (!dragTool) return;
+              if (!dragTool || state.recovered) return;
               event.preventDefault();
               setDragging(true);
               onAct(find);
             }}
             onPointerEnter={() => {
-              if (dragging && dragTool) onAct(find);
+              if (dragging && dragTool && !state.recovered) onAct(find);
             }}
             onClick={() => {
+              if (state.recovered) {
+                onSelect(find.id);
+                return;
+              }
               if (!dragTool) onAct(find);
             }}
             aria-label={`${find.name}, ${state.exposed}% clear, ${state.recovered ? 'found' : 'in soil'}`}
             disabled={false}
-            className={`absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-xs font-bold shadow-lg transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
+            className={`group/hotspot absolute z-10 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-2 text-xs font-bold shadow-lg transition duration-150 hover:z-20 hover:scale-110 hover:border-cyan-100 hover:shadow-xl active:scale-95 focus-visible:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
               tutorialTarget ? 'size-14 animate-pulse sm:size-16' : 'size-9 sm:size-10'
             } ${
               state.recovered
-                ? 'border-emerald-100 bg-emerald-700 text-white opacity-80'
+                ? 'border-emerald-100 bg-emerald-700 text-white opacity-85 hover:opacity-100'
                 : selectedFindId === find.id
                   ? 'border-white bg-sky-700 text-white ring-4 ring-sky-300'
                   : 'border-white/90 bg-stone-900/65 text-white'
@@ -1985,6 +2007,11 @@ function FindHotspots({
             {tutorialTarget ? (
               <span className="absolute left-1/2 top-full mt-2 min-w-28 -translate-x-1/2 rounded-md border border-white/75 bg-black/65 px-2 py-1 text-center text-xs text-white">
                 {state.exposed >= 70 ? 'Pick it up' : 'Brush here'}
+              </span>
+            ) : null}
+            {!tutorialTarget ? (
+              <span className="pointer-events-none absolute left-1/2 top-full mt-2 min-w-24 -translate-x-1/2 rounded-md border border-white/70 bg-black/70 px-2 py-1 text-center text-[11px] text-white opacity-0 shadow-lg transition group-hover/hotspot:opacity-100 group-focus-visible/hotspot:opacity-100">
+                {state.recovered ? 'Found' : state.exposed >= 70 ? 'Pick up' : 'Brush'}
               </span>
             ) : null}
             <span
