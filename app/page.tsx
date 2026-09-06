@@ -975,6 +975,8 @@ export default function Home() {
     [unlockedScreens],
   );
   const hasLookedAtFirstClue = findState['1']?.cleaned > 0;
+  const hasFirstJoin = findState['1']?.joinedWith.includes('2') || findState['2']?.joinedWith.includes('1');
+  const hasFirstGroup = findState['1']?.groups.includes('cooking') || findState['2']?.groups.includes('cooking');
   const nextScreen =
     tutorialStep === 'firstLook' && !hasLookedAtFirstClue
       ? 'examination'
@@ -994,23 +996,83 @@ export default function Home() {
         ? 'Pick it up'
       : tutorialStep === 'firstLook' && !hasLookedAtFirstClue
         ? 'Look closer'
-        : tutorialStep === 'firstLook'
-          ? 'Find another piece'
+      : tutorialStep === 'firstLook'
+        ? activeDigState.exposed >= 70
+          ? 'Pick it up'
+          : activeDigState.exposed > 0
+            ? 'Brush a little more'
+            : 'Brush the next piece'
           : tutorialStep === 'firstMatch'
-            ? 'Match pieces'
+            ? hasFirstJoin
+              ? 'Mark as cooking'
+              : 'Match pieces'
             : tutorialStep === 'firstBuild'
               ? 'Build the room'
               : 'Choose the story';
 
   function followNextAction() {
     if (tutorialStep === 'firstBrush') {
-      setActiveTool('brush');
-      setScreen('excavation');
+      if (screen === 'excavation') {
+        actOnFind(activeDigFind, 'brush');
+      } else {
+        setActiveTool('brush');
+        setScreen('excavation');
+      }
       return;
     }
     if (tutorialStep === 'firstLift') {
-      setActiveTool('lift');
-      setScreen('excavation');
+      if (screen === 'excavation') {
+        actOnFind(activeDigFind, 'lift');
+      } else {
+        setActiveTool('lift');
+        setScreen('excavation');
+      }
+      return;
+    }
+    if (tutorialStep === 'firstLook' && !hasLookedAtFirstClue) {
+      if (screen === 'examination') {
+        inspectFind(selectedFind);
+      } else {
+        setScreen('examination');
+      }
+      return;
+    }
+    if (tutorialStep === 'firstLook') {
+      if (screen === 'excavation') {
+        actOnFind(activeDigFind, activeDigState.exposed >= 70 ? 'lift' : 'brush');
+      } else {
+        setScreen('excavation');
+      }
+      return;
+    }
+    if (tutorialStep === 'firstMatch') {
+      if (screen !== 'joins') {
+        setScreen('joins');
+        return;
+      }
+      if (!hasFirstJoin) {
+        const firstFind = finds.find((find) => find.id === '1') ?? finds[0];
+        joinFinds(firstFind);
+        return;
+      }
+      if (!hasFirstGroup) {
+        groupFirstCookingPair();
+      }
+      return;
+    }
+    if (tutorialStep === 'firstBuild') {
+      if (screen !== 'reconstruction') {
+        setScreen('reconstruction');
+        return;
+      }
+      placeGroup('hearth');
+      return;
+    }
+    if (tutorialStep === 'freePlay' && screen === 'interpretation') {
+      setChosenInterpretation('B');
+      if (placedCount > 0) setHasCompletedMainLoop(true);
+      setGuidance('Planned closure fits best, but the bead still keeps a little mystery.');
+      playCue('place');
       return;
     }
     setScreen(nextScreen);
@@ -1075,19 +1137,35 @@ export default function Home() {
     oscillator.stop(context.currentTime + profile.end);
   }
 
-  function actOnFind(find: Find) {
+  function inspectFind(find: Find) {
     const state = findState[find.id];
+    updateFind(find.id, {
+      cleaned: clamp(state.cleaned + 25),
+      observations: [...new Set([...state.observations, find.clue])],
+    });
+    playCue('clean');
+    setGuidance(find.id === '1' ? 'A dark line continues. Find another piece by the hearth.' : find.clue);
+    if (find.id === '1') {
+      const nextFind = finds.find((item) => item.id === '2');
+      if (nextFind) setSelectedFindId(nextFind.id);
+      setScreen('excavation');
+    }
+  }
+
+  function actOnFind(find: Find, toolOverride?: Tool) {
+    const state = findState[find.id];
+    const tool = toolOverride ?? currentTool;
     const compactContext =
       find.locationId === 'pit' ||
       find.locationId === 'threshold' ||
       find.locationId === 'collapse';
     setSelectedFindId(find.id);
-    if (currentTool === 'brush' || currentTool === 'pick') {
-      const amount = currentTool === 'brush' ? 20 : compactContext ? 34 : 26;
+    if (tool === 'brush' || tool === 'pick') {
+      const amount = tool === 'brush' ? 20 : compactContext ? 34 : 26;
       const riskPenalty =
-        currentTool === 'pick' && find.fragile && !state.stabilized
+        tool === 'pick' && find.fragile && !state.stabilized
           ? 18
-          : currentTool === 'pick' && !compactContext && state.exposed > 45
+          : tool === 'pick' && !compactContext && state.exposed > 45
             ? 8
             : 0;
       const observations = riskPenalty
@@ -1098,11 +1176,11 @@ export default function Home() {
         contextQuality: clamp(state.contextQuality - riskPenalty),
         observations,
       });
-      playCue(currentTool);
+      playCue(tool);
       setGuidance(
         state.exposed + amount >= 70
           ? 'Ready. Pick it up.'
-          : currentTool === 'brush'
+          : tool === 'brush'
             ? tutorialStep === 'firstBrush'
               ? 'Edge revealed. Brush a little more.'
               : 'Gentle pass. The edge is clearer.'
@@ -1114,7 +1192,7 @@ export default function Home() {
       );
       return;
     }
-    if (currentTool === 'stabilize') {
+    if (tool === 'stabilize') {
       updateFind(find.id, {
         stabilized: true,
         contextQuality: Math.max(state.contextQuality, 92),
@@ -1124,7 +1202,7 @@ export default function Home() {
       setGuidance(`${find.name}: fragile trace protected.`);
       return;
     }
-    if (currentTool === 'lift') {
+    if (tool === 'lift') {
       if (state.exposed < 70) {
         playCue('blocked');
         setGuidance('Not yet. Brush until the edge is ready.');
@@ -1145,17 +1223,11 @@ export default function Home() {
       setGuidance(find.id === '1' ? "Nice. Let's look at it." : `${find.name} is in your tray.`);
       return;
     }
-    if (currentTool === 'light') {
-      updateFind(find.id, {
-        cleaned: clamp(state.cleaned + 34),
-        observations: [...new Set([...state.observations, find.clue])],
-      });
-      playCue('clean');
-      setGuidance(find.clue);
-      setScreen('examination');
+    if (tool === 'light') {
+      inspectFind(find);
       return;
     }
-    if (currentTool === 'join') {
+    if (tool === 'join') {
       if (!state.recovered) {
         playCue('blocked');
         setGuidance('Pick it up first, then try matching it.');
@@ -1227,6 +1299,16 @@ export default function Home() {
     playCue('stabilize');
   }
 
+  function groupFirstCookingPair() {
+    ['1', '2'].forEach((id) => {
+      updateFind(id, {
+        groups: [...new Set([...findState[id].groups, 'cooking'])],
+      });
+    });
+    setGuidance('The joined pot pieces now count toward Cooking.');
+    playCue('stabilize');
+  }
+
   function placeGroup(zoneId: string) {
     const zone = reconstructionZones.find((item) => item.id === zoneId);
     if (!zone) return;
@@ -1273,6 +1355,26 @@ export default function Home() {
     );
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1600);
+  }
+
+  function closeContainingMenu(element: HTMLElement) {
+    element.closest('details')?.removeAttribute('open');
+  }
+
+  function startOver() {
+    window.localStorage.removeItem(STORAGE_KEY);
+    setMode('expedition');
+    setActiveTool('brush');
+    setSelectedFindId('1');
+    setExcavationFocus('hearth');
+    setFindState(initialFindState);
+    setPlacements({});
+    setChosenInterpretation('B');
+    setScreen('excavation');
+    setGuidance('Something is peeking through by the hearth. Brush it gently.');
+    setFieldworkHistoryId('threshold');
+    setHasCompletedMainLoop(false);
+    playCue('place');
   }
 
   function startFieldworkVariation(historyId = fieldworkHistoryId) {
@@ -1452,16 +1554,48 @@ export default function Home() {
               </summary>
               <div className="absolute right-0 top-10 z-50 w-56 rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg">
                 <p className="px-2 py-1 text-xs font-medium text-muted-foreground">Game Menu</p>
-                <button type="button" onClick={saveNow} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    saveNow();
+                    closeContainingMenu(event.currentTarget);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                >
                   <Save aria-hidden="true" />
                   {saved ? 'Saved' : 'Save'}
                 </button>
-                <button type="button" onClick={() => setSoundEnabled((current) => !current)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    setSoundEnabled((current) => !current);
+                    closeContainingMenu(event.currentTarget);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                >
                   {soundEnabled ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}
                   {soundEnabled ? 'Sound on' : 'Sound off'}
                 </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    startOver();
+                    closeContainingMenu(event.currentTarget);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  <Rotate3D aria-hidden="true" />
+                  Start over
+                </button>
                 <div className="my-1 h-px bg-border" />
-                <button type="button" onClick={recoverStarterSet} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    recoverStarterSet();
+                    closeContainingMenu(event.currentTarget);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                >
                   <Sparkles aria-hidden="true" />
                   Skip to test set
                 </button>
@@ -1545,14 +1679,7 @@ export default function Home() {
                   find={selectedFind}
                   state={selectedState}
                   findState={findState}
-                  onClean={() => {
-                    updateFind(selectedFind.id, {
-                      cleaned: clamp(selectedState.cleaned + 25),
-                      observations: [...new Set([...selectedState.observations, selectedFind.clue])],
-                    });
-                    playCue('clean');
-                    setGuidance(selectedFind.id === '1' ? 'A dark line continues. Find another piece by the hearth.' : selectedFind.clue);
-                  }}
+                  onClean={() => inspectFind(selectedFind)}
                   onGroup={groupFind}
                   onJoin={() => {
                     setGuidance(joinHint(selectedFind, findState));
