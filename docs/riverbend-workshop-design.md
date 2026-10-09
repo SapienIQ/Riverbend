@@ -1,6 +1,8 @@
 # Riverbend Workshop Design Foundation
 
-Riverbend Workshop is a compact archaeology crafting and reconstruction vertical slice set in the fictional Leth River Basin. It focuses on tactile evidence work: exposing finds, recording context, cleaning surfaces, confirming joins, grouping activity evidence, placing reconstruction echoes, and choosing a confidence-labeled interpretation.
+Riverbend Workshop is a compact archaeology-themed cozy mystery puzzle set in the fictional Leth River Basin. It focuses on the fantasy of waking a room through physical traces: reveal clues, collect pieces, restore an object, place it back into the room, and choose what the memory seems to mean.
+
+The main game surface should feel like play first and archaeological reasoning second. Professional procedure, evidence metadata, confidence math, and detailed notes belong in the optional Notebook or in hidden support logic, not in the first playable loop.
 
 ## Site History
 
@@ -37,4 +39,4 @@ Fieldwork Mode may vary positions, preservation quality, tool pressure, and whet
 
 ## Interaction Requirements
 
-The player must be able to complete the slice without typing. Excavation, lifting, examining, joining, grouping, placing, revising, and confidence review must remain directly interactive on desktop and mobile without browser-page scrolling during active play.
+The player must be able to complete the first memory without typing or opening optional notes. The first loop uses five visible verbs: Reveal, Collect, Restore, Place, and Decide. Desktop and mobile should keep one large playable scene, one primary action, and at most two active choices before the final Decide moment, with no browser-page scrolling during active play.

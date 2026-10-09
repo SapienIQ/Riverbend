@@ -1,25 +1,19 @@
 # Riverbend Workshop Smoke Test Checklist
 
-Use this checklist after each milestone update. The player should be able to complete it without typing notes.
+Use this checklist after each milestone update. The player should be able to complete the first memory without typing notes or reading the Notebook.
 
-1. Clear local save, load the app, and confirm the player starts in Dig with only the Dig step visible.
-2. Confirm the first clue marker is large, gently pulsing, and labeled with the next action.
-3. Confirm only Brush is available at the very start, with a concise tooltip and helper text.
-4. Click the main next-action button while still in Dig and confirm it brushes the clue, updates the visible clearing, and says the edge is revealed.
-5. Confirm Pick appears only after brushing has begun, and Pick Up appears only once the clue is ready.
-6. Confirm the header never says "Ready. Pick it up." unless Pick Up is visible or the main button says Pick it up.
-7. Hover or focus a field marker and confirm it visibly reacts with a label, scale, or shadow change before clicking.
-8. Pick up the first clue and confirm Look unlocks and the main next-action button says Look closer.
-9. Use the main next-action button in Look and confirm it inspects the clue, then sends the player back to Dig for another piece.
-10. Find the second compatible piece and confirm Match unlocks only after both pieces are found.
-11. Click the main next-action button in Match and confirm it snaps the first pair when they are ready.
-12. Click the main next-action button again in Match and confirm it marks the pair as Cooking, then unlocks Build.
-13. Click the main next-action button in Build and confirm it places the supported hearth state.
-14. Click the main next-action button in Story and confirm it chooses the recommended story, then unlocks Practice after the first loop is complete.
-15. Confirm Save, Sound, Start over, and Skip to test set live inside the menu and are not competing with the main action.
-16. Confirm the tray stays collapsed until at least three clues are found.
-17. Confirm inspection shows no more than three primary clue observations before optional Field notes.
-18. Confirm placed reconstruction zones render staged room states: hearth, bench, threshold, pit, and collapse.
-19. Save, reload, and confirm restored progress is not overwritten by the default opening state.
-20. Check desktop, tablet, and mobile widths for no required browser-page scrolling during active play.
-21. On mobile, open the Next drawer and confirm it focuses on current clue, one useful action, confidence, and the tray.
+1. Clear local save, load the app, and confirm the player sees one hearth hotspot, one primary `Reveal` button, two clue tokens, and a collapsed Notebook.
+2. Confirm no professional tool tray, tab row, evidence drawer, or exposed count dashboard is visible during the first loop.
+3. Click `Reveal` and confirm the hearth marker reacts and the prompt advances without adding extra choices.
+4. Click `Collect` for piece 1 and confirm one clue token changes from hidden to collected.
+5. Reveal and collect piece 2, then confirm the primary action becomes `Restore pot`.
+6. Click `Restore pot` and confirm a forgiving two-piece restore panel appears and the pot becomes restored.
+7. Click `Place by hearth` and confirm the restored pot creates a warm hearth echo in the room scene.
+8. Click `Wake the room` and confirm the room memory text appears.
+9. At `Decide`, confirm exactly three light story choices appear: daily cooking, sudden damage, and later mixing.
+10. Choose `Daily cooking` and confirm the loop completes and the primary action changes to `Play again`.
+11. Open Notebook and confirm it contains optional archaeology notes, but no progress depends on opening it.
+12. Save, reload, and confirm chapter step, collected pieces, restored pot, hearth memory, and story choice restore correctly.
+13. Check desktop, tablet, and mobile widths for no required browser-page scrolling during active play.
+14. Confirm hover/focus/tap states make the hearth hotspot, story choices, menu, Notebook, and primary action visibly reactive.
+15. Run `pnpm run lint` and `pnpm build`.

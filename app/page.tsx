@@ -2,6 +2,7 @@
 
 import {
   Archive,
+  BookOpen,
   Brush,
   CheckCircle2,
   ClipboardCheck,
@@ -10,13 +11,9 @@ import {
   Eye,
   Hammer,
   Hand,
-  Layers3,
-  Lightbulb,
-  Map,
   Menu,
   Rotate3D,
   Save,
-  Search,
   ShieldCheck,
   Volume2,
   VolumeX,
@@ -38,7 +35,6 @@ import {
   DrawerTrigger,
 } from '@/components/ui/drawer';
 import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 type Phase = 'I' | 'II' | 'III' | 'Later' | 'Mixed';
 type Screen =
@@ -53,6 +49,10 @@ type Tool = 'brush' | 'pick' | 'stabilize' | 'lift' | 'light' | 'join';
 type SoundCue = 'brush' | 'pick' | 'stabilize' | 'lift' | 'join' | 'place' | 'blocked' | 'clean';
 type ExcavationFocus = 'hearth' | 'bench' | 'threshold' | 'pit' | 'collapse' | 'north';
 type TutorialStep = 'firstBrush' | 'firstLift' | 'firstLook' | 'firstMatch' | 'firstBuild' | 'freePlay';
+type ChapterStep = 'discover' | 'restore' | 'place' | 'memory' | 'decide' | 'complete';
+type GameVerb = 'reveal' | 'collect' | 'restore' | 'place' | 'decide';
+type MemoryUnlock = 'hearth_memory';
+type StoryChoice = 'daily' | 'sudden' | 'mixed';
 type Confidence =
   | 'Confirmed'
   | 'Strongly supported'
@@ -839,6 +839,10 @@ export default function Home() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [fieldworkHistoryId, setFieldworkHistoryId] = useState<FieldworkHistory['id']>('threshold');
   const [hasCompletedMainLoop, setHasCompletedMainLoop] = useState(false);
+  const [chapterId, setChapterId] = useState('hearth_memory');
+  const [_chapterStep, setChapterStep] = useState<ChapterStep>('discover');
+  const [memoryUnlocks, setMemoryUnlocks] = useState<MemoryUnlock[]>([]);
+  const [storyChoice, setStoryChoice] = useState<StoryChoice | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
@@ -864,6 +868,10 @@ export default function Home() {
           unlockedScreens?: Screen[];
           tutorialStep?: TutorialStep;
           hasCompletedMainLoop?: boolean;
+          chapterId?: string;
+          chapterStep?: ChapterStep;
+          memoryUnlocks?: MemoryUnlock[];
+          storyChoice?: StoryChoice | null;
         };
         const restoredFindState = parsed.findState ?? initialFindState;
         const restoredPlacements = parsed.placements ?? {};
@@ -881,6 +889,10 @@ export default function Home() {
         setSoundEnabled(parsed.soundEnabled ?? true);
         setFieldworkHistoryId(parsed.fieldworkHistoryId ?? 'threshold');
         setHasCompletedMainLoop(restoredComplete);
+        setChapterId(parsed.chapterId ?? 'hearth_memory');
+        setChapterStep(parsed.chapterStep ?? 'discover');
+        setMemoryUnlocks(parsed.memoryUnlocks ?? []);
+        setStoryChoice(parsed.storyChoice ?? null);
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
       } finally {
@@ -891,7 +903,7 @@ export default function Home() {
   }, []);
 
   const selectedFind = finds.find((find) => find.id === selectedFindId) ?? finds[0];
-  const selectedState = findState[selectedFind.id];
+  const _selectedState = findState[selectedFind.id];
   const recoveredFinds = finds.filter((find) => findState[find.id]?.recovered);
   const joinedPairs = useMemo(() => {
     const pairs = new Set<string>();
@@ -959,7 +971,7 @@ export default function Home() {
     [findState, hasCompletedMainLoopNow, placements],
   );
 
-  const recommendedTool: Tool = activeDigFind.fragile && !activeDigState.stabilized ? 'stabilize' : activeDigState.exposed < 70 ? 'brush' : activeDigState.recovered ? 'light' : 'lift';
+  const _recommendedTool: Tool = activeDigFind.fragile && !activeDigState.stabilized ? 'stabilize' : activeDigState.exposed < 70 ? 'brush' : activeDigState.recovered ? 'light' : 'lift';
   const availableTools = useMemo<Tool[]>(() => {
     if (screen !== 'excavation' || !hasDigTarget) return [];
     const toolSet = new Set<Tool>(['brush']);
@@ -969,7 +981,7 @@ export default function Home() {
     return tools.map((tool) => tool.id).filter((tool) => toolSet.has(tool));
   }, [activeDigFind.fragile, activeDigState.exposed, activeDigState.recovered, activeDigState.stabilized, hasDigTarget, screen, tutorialStep]);
   const currentTool = availableTools.includes(activeTool) ? activeTool : availableTools[0] ?? activeTool;
-  const visibleScreens = useMemo(
+  const _visibleScreens = useMemo(
     () => [
       ...unlockedScreens.filter((item) => item !== 'survey' && item !== 'fieldwork'),
       ...unlockedScreens.filter((item) => item === 'survey' || item === 'fieldwork'),
@@ -991,7 +1003,7 @@ export default function Home() {
           : tutorialStep === 'freePlay'
             ? 'interpretation'
             : 'excavation';
-  const nextActionLabel =
+  const _nextActionLabel =
     tutorialStep === 'firstBrush'
       ? 'Brush the clue'
       : tutorialStep === 'firstLift'
@@ -1011,7 +1023,7 @@ export default function Home() {
             : tutorialStep === 'firstBuild'
               ? 'Build the room'
               : 'Choose the story';
-  const headerGuidance =
+  const _headerGuidance =
     screen === 'excavation' && !hasDigTarget
       ? tutorialStep === 'firstBuild'
         ? 'This patch is clear. Build the room from what you found.'
@@ -1021,11 +1033,70 @@ export default function Home() {
             ? 'This patch is clear. Look at your clues or choose another spot.'
             : guidance
       : guidance;
-  const excavationDescription = hasDigTarget
+  const _excavationDescription = hasDigTarget
     ? `${toolById(currentTool).label} selected. Only this spot is active for now.`
     : 'This patch is clear. No tool needed here right now.';
+  const hearthFinds = [finds.find((find) => find.id === '1')!, finds.find((find) => find.id === '2')!];
+  const firstPotState = findState['1'];
+  const secondPotState = findState['2'];
+  const collectedPotPieces = hearthFinds.filter((find) => findState[find.id]?.recovered);
+  const potRestored = hasConfirmedJoin(findState, ['1', '2']);
+  const hearthPlaced = Boolean(placements.hearth);
+  const hearthMemoryAwake = memoryUnlocks.includes('hearth_memory');
+  const activeChapterStep: ChapterStep =
+    storyChoice
+      ? 'complete'
+      : hearthMemoryAwake
+        ? 'decide'
+        : hearthPlaced
+          ? 'memory'
+          : potRestored
+            ? 'place'
+            : collectedPotPieces.length >= 2
+              ? 'restore'
+              : 'discover';
+  const activeGameVerb: GameVerb =
+    activeChapterStep === 'restore'
+      ? 'restore'
+      : activeChapterStep === 'place' || activeChapterStep === 'memory'
+        ? 'place'
+        : activeChapterStep === 'decide' || activeChapterStep === 'complete'
+          ? 'decide'
+          : (firstPotState.recovered ? secondPotState : firstPotState).exposed >= 70
+            ? 'collect'
+            : 'reveal';
+  const activeChapterPrompt =
+    activeChapterStep === 'discover'
+      ? collectedPotPieces.length
+        ? 'Another piece is waiting near the hearth.'
+        : 'Something by the hearth wants to be found.'
+      : activeChapterStep === 'restore'
+        ? 'Two pieces remember the same shape.'
+        : activeChapterStep === 'place'
+          ? 'The restored pot belongs beside the warm ash.'
+          : activeChapterStep === 'memory'
+            ? 'The room is ready to remember.'
+            : activeChapterStep === 'decide'
+              ? 'What did this first memory show you?'
+              : 'The hearth memory is awake.';
+  const primaryGameAction =
+    activeChapterStep === 'complete'
+      ? 'Play again'
+      : activeGameVerb === 'reveal'
+      ? 'Reveal'
+      : activeGameVerb === 'collect'
+        ? 'Collect'
+        : activeGameVerb === 'restore'
+          ? 'Restore pot'
+          : activeChapterStep === 'memory'
+            ? 'Wake the room'
+            : activeGameVerb === 'place'
+              ? 'Place by hearth'
+              : 'Choose a meaning';
+  const nextDiscoverFind = firstPotState.recovered ? hearthFinds[1] : hearthFinds[0];
+  const nextDiscoverState = findState[nextDiscoverFind.id];
 
-  function followNextAction() {
+  function _followNextAction() {
     if (tutorialStep === 'firstBrush') {
       if (screen === 'excavation') {
         actOnFind(activeDigFind, 'brush');
@@ -1093,6 +1164,98 @@ export default function Home() {
     setScreen(nextScreen);
   }
 
+  function setChapterProgress(step: ChapterStep) {
+    setChapterStep(step);
+    setScreen(
+      step === 'restore'
+        ? 'joins'
+        : step === 'place' || step === 'memory'
+          ? 'reconstruction'
+          : step === 'decide' || step === 'complete'
+            ? 'interpretation'
+            : 'excavation',
+    );
+  }
+
+  function playChapterAction() {
+    if (activeChapterStep === 'discover') {
+      const target = nextDiscoverFind;
+      const state = nextDiscoverState;
+      setSelectedFindId(target.id);
+      setExcavationFocus('hearth');
+      if (state.exposed < 70) {
+        updateFind(target.id, {
+          exposed: clamp(state.exposed + 38),
+          observations: [...new Set([...state.observations, target.clue])],
+        });
+        setGuidance(target.id === '1' ? 'A curved edge appears in the ash.' : 'A second curve answers the first.');
+        playCue('brush');
+        return;
+      }
+      updateFind(target.id, {
+        exposed: 100,
+        recovered: true,
+        cleaned: Math.max(state.cleaned, 50),
+        observations: [...new Set([...state.observations, target.clue])],
+      });
+      setGuidance(target.id === '1' ? 'One pot piece is safe in your pouch.' : 'The two pieces hum with the same shape.');
+      playCue('lift');
+      if (target.id === '2') setChapterProgress('restore');
+      return;
+    }
+    if (activeChapterStep === 'restore') {
+      updateFind('1', {
+        joinedWith: [...new Set([...findState['1'].joinedWith, '2'])],
+        groups: [...new Set([...findState['1'].groups, 'cooking'])],
+        observations: [...new Set([...findState['1'].observations, 'The two pieces fit into one cooking pot.'])],
+      });
+      updateFind('2', {
+        joinedWith: [...new Set([...findState['2'].joinedWith, '1'])],
+        groups: [...new Set([...findState['2'].groups, 'cooking'])],
+        observations: [...new Set([...findState['2'].observations, 'The soot line carries across the join.'])],
+      });
+      setGuidance('The pot remembers its curve.');
+      setChapterProgress('place');
+      playCue('join');
+      return;
+    }
+    if (activeChapterStep === 'place') {
+      setPlacements((current) => ({ ...current, hearth: '1' }));
+      setGuidance('The hearth warms around the restored pot.');
+      setChapterProgress('memory');
+      playCue('place');
+      return;
+    }
+    if (activeChapterStep === 'memory') {
+      setMemoryUnlocks((current) => current.includes('hearth_memory') ? current : [...current, 'hearth_memory']);
+      setGuidance('A small ordinary meal returns to the room.');
+      setChapterProgress('decide');
+      playCue('clean');
+      return;
+    }
+    if (activeChapterStep === 'decide') {
+      setGuidance('Choose the meaning that feels strongest.');
+      playCue('blocked');
+      return;
+    }
+    startOver();
+  }
+
+  function chooseStory(choice: StoryChoice) {
+    setStoryChoice(choice);
+    setChosenInterpretation(choice === 'mixed' ? 'C' : choice === 'sudden' ? 'A' : 'B');
+    setHasCompletedMainLoop(true);
+    setChapterProgress('complete');
+    setGuidance(
+      choice === 'daily'
+        ? 'Yes. The first memory is ordinary work, repaired and reused.'
+        : choice === 'sudden'
+          ? 'Possible, but this first memory feels calmer than a sudden ending.'
+          : 'Possible later, but this joined pot still belongs to the hearth.',
+    );
+    playCue('place');
+  }
+
   useEffect(() => {
     if (!hydrated) return;
     window.localStorage.setItem(
@@ -1112,9 +1275,13 @@ export default function Home() {
         unlockedScreens,
         tutorialStep,
         hasCompletedMainLoop: hasCompletedMainLoopNow,
+        chapterId,
+        chapterStep: activeChapterStep,
+        memoryUnlocks,
+        storyChoice,
       }),
     );
-  }, [chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, mode, placements, screen, selectedFindId, soundEnabled, tutorialStep, unlockedScreens]);
+  }, [activeChapterStep, chapterId, chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, memoryUnlocks, mode, placements, screen, selectedFindId, soundEnabled, storyChoice, tutorialStep, unlockedScreens]);
 
   function updateFind(id: string, patch: Partial<FindState>) {
     setFindState((current) => ({
@@ -1306,7 +1473,7 @@ export default function Home() {
     playCue('join');
   }
 
-  function groupFind(find: Find, group: string) {
+  function _groupFind(find: Find, group: string) {
     updateFind(find.id, {
       groups: [...new Set([...findState[find.id].groups, group])],
     });
@@ -1366,6 +1533,10 @@ export default function Home() {
         unlockedScreens,
         tutorialStep,
         hasCompletedMainLoop: hasCompletedMainLoopNow,
+        chapterId,
+        chapterStep: activeChapterStep,
+        memoryUnlocks,
+        storyChoice,
       }),
     );
     setSaved(true);
@@ -1389,10 +1560,14 @@ export default function Home() {
     setGuidance('Something is peeking through by the hearth. Brush it gently.');
     setFieldworkHistoryId('threshold');
     setHasCompletedMainLoop(false);
+    setChapterId('hearth_memory');
+    setChapterStep('discover');
+    setMemoryUnlocks([]);
+    setStoryChoice(null);
     playCue('place');
   }
 
-  function startFieldworkVariation(historyId = fieldworkHistoryId) {
+  function _startFieldworkVariation(historyId = fieldworkHistoryId) {
     const history = fieldworkHistories.find((item) => item.id === historyId) ?? fieldworkHistories[0];
     setFieldworkHistoryId(history.id);
     setMode('fieldwork');
@@ -1404,7 +1579,7 @@ export default function Home() {
     playCue('place');
   }
 
-  function returnToExpedition() {
+  function _returnToExpedition() {
     setMode('expedition');
     setFindState(initialFindState);
     setPlacements({});
@@ -1543,246 +1718,202 @@ export default function Home() {
   ]);
 
   return (
-    <main className="fixed inset-0 overflow-hidden bg-background text-foreground">
-      <div className="flex h-full flex-col">
-        <header className="flex min-h-16 items-center justify-between gap-3 border-b border-border bg-card/95 px-3 py-2 shadow-sm sm:px-5">
-          <div className="min-w-0">
+    <main className="fixed inset-0 overflow-hidden bg-[radial-gradient(circle_at_50%_15%,#f4e3c0_0%,#d7b983_36%,#6f5136_100%)] text-stone-950">
+      <div className="relative flex h-full flex-col">
+        <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 p-3 sm:p-5">
+          <div className="pointer-events-auto max-w-[min(620px,calc(100vw-96px))] rounded-lg border border-amber-100/70 bg-black/42 px-3 py-2 text-white shadow-xl backdrop-blur-sm">
             <div className="flex items-center gap-2">
-              <Compass className="size-5 text-primary" aria-hidden="true" />
-              <h1 className="truncate text-base font-semibold sm:text-xl">Riverbend Workshop</h1>
-              <Badge variant="secondary" className="hidden sm:inline-flex">
-                Leth River Basin
-              </Badge>
+              <Compass className="size-4 text-amber-100" aria-hidden="true" />
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-100">Riverbend Workshop</p>
             </div>
-            <p className="truncate text-xs text-muted-foreground sm:text-sm">
-              {headerGuidance}
-            </p>
+            <p className="mt-1 text-sm font-medium sm:text-base">{activeChapterPrompt}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <div className="hidden w-40 sm:block">
-              <Progress value={clamp(sliceProgress)} aria-label="Site progress" />
+          <details className="group/menu pointer-events-auto relative">
+            <summary className="flex size-10 cursor-pointer list-none items-center justify-center rounded-full border border-amber-100/70 bg-black/42 text-white shadow-lg backdrop-blur-sm transition hover:scale-105 hover:bg-black/55 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 [&::-webkit-details-marker]:hidden">
+              <Menu className="size-4" aria-hidden="true" />
+              <span className="sr-only">Menu</span>
+            </summary>
+            <div className="absolute right-0 top-12 z-50 w-56 rounded-lg border border-amber-100/70 bg-stone-950/92 p-1 text-sm text-stone-50 shadow-2xl backdrop-blur">
+              <p className="px-2 py-1 text-xs font-medium text-amber-100">Game Menu</p>
+              <button
+                type="button"
+                onClick={(event) => {
+                  saveNow();
+                  closeContainingMenu(event.currentTarget);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
+              >
+                <Save aria-hidden="true" />
+                {saved ? 'Saved' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  setSoundEnabled((current) => !current);
+                  closeContainingMenu(event.currentTarget);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
+              >
+                {soundEnabled ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}
+                {soundEnabled ? 'Sound on' : 'Sound off'}
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  startOver();
+                  closeContainingMenu(event.currentTarget);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
+              >
+                <Rotate3D aria-hidden="true" />
+                Start over
+              </button>
+              <div className="my-1 h-px bg-white/15" />
+              <button
+                type="button"
+                onClick={(event) => {
+                  recoverStarterSet();
+                  closeContainingMenu(event.currentTarget);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
+              >
+                <Sparkles aria-hidden="true" />
+                Skip to test set
+              </button>
             </div>
-            <details className="group/menu relative">
-              <summary className="flex size-8 cursor-pointer list-none items-center justify-center rounded-lg border border-border bg-background transition hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
-                <Menu className="size-4" aria-hidden="true" />
-                <span className="sr-only">Menu</span>
-              </summary>
-              <div className="absolute right-0 top-10 z-50 w-56 rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg">
-                <p className="px-2 py-1 text-xs font-medium text-muted-foreground">Game Menu</p>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    saveNow();
-                    closeContainingMenu(event.currentTarget);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-                >
-                  <Save aria-hidden="true" />
-                  {saved ? 'Saved' : 'Save'}
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    setSoundEnabled((current) => !current);
-                    closeContainingMenu(event.currentTarget);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-                >
-                  {soundEnabled ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}
-                  {soundEnabled ? 'Sound on' : 'Sound off'}
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    startOver();
-                    closeContainingMenu(event.currentTarget);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-                >
-                  <Rotate3D aria-hidden="true" />
-                  Start over
-                </button>
-                <div className="my-1 h-px bg-border" />
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    recoverStarterSet();
-                    closeContainingMenu(event.currentTarget);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-                >
-                  <Sparkles aria-hidden="true" />
-                  Skip to test set
-                </button>
-              </div>
-            </details>
-          </div>
+          </details>
         </header>
 
-        <section className={`grid min-h-0 flex-1 grid-cols-1 ${availableTools.length ? 'grid-rows-[1fr_auto] lg:grid-cols-[76px_minmax(0,1fr)_330px]' : 'grid-rows-[1fr] lg:grid-cols-[minmax(0,1fr)_330px]'} lg:grid-rows-1`}>
-          <ToolTray
-            activeTool={currentTool}
-            recommendedTool={recommendedTool}
-            availableTools={availableTools}
-            onSelect={setActiveTool}
+        <section className="relative min-h-0 flex-1 overflow-hidden">
+          <Image
+            className="absolute inset-0 size-full object-cover saturate-[0.82] sepia-[0.16]"
+            src="/assets/riverbend-workshop.png"
+            alt="Illustrated top-down workshop excavation with hearth, bench, threshold, and room floor."
+            fill
+            priority
+            sizes="100vw"
           />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_35%_56%,transparent_0%,rgb(74_47_26/0.18)_42%,rgb(30_19_12/0.42)_100%)]" />
 
-          <div className="min-h-0 overflow-hidden p-2 sm:p-3">
-            <Tabs value={screen} onValueChange={(value) => setScreen(value as Screen)} className="h-full">
-              <TabsList className="mb-2 flex h-auto w-full gap-1 overflow-x-auto bg-muted/70 p-1">
+          <button
+            type="button"
+            onClick={activeChapterStep === 'discover' ? playChapterAction : undefined}
+            disabled={activeChapterStep !== 'discover'}
+            aria-label="Hearth clue"
+            className={`absolute left-[36%] top-[57%] z-10 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-amber-100 text-sm font-bold text-white shadow-2xl transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-100 ${
+              activeChapterStep === 'discover'
+                ? 'size-20 animate-pulse bg-amber-600/72 hover:scale-110 hover:bg-amber-500/82 active:scale-95'
+                : 'size-14 bg-emerald-700/72'
+            }`}
+          >
+            {collectedPotPieces.length >= 2 ? <CheckCircle2 className="size-7" aria-hidden="true" /> : collectedPotPieces.length + 1}
+            {activeChapterStep === 'discover' ? (
+              <span className="absolute left-1/2 top-full mt-2 min-w-32 -translate-x-1/2 rounded-md bg-black/65 px-2 py-1 text-xs font-semibold text-white shadow-lg">
+                {primaryGameAction}
+              </span>
+            ) : null}
+          </button>
+
+          {potRestored ? (
+            <div className="pointer-events-none absolute left-[36%] top-[57%] z-[6] h-[22%] w-[23%] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-orange-100/70 bg-orange-500/20 shadow-[0_0_80px_rgb(251_146_60/0.55)] backdrop-blur-[1px]">
+              <div className="absolute inset-[28%] rounded-full border-[10px] border-orange-100/55 bg-black/25" />
+            </div>
+          ) : null}
+
+          {hearthMemoryAwake ? (
+            <div className="pointer-events-none absolute inset-0 z-[7] bg-[radial-gradient(circle_at_34%_57%,rgb(251_191_36/0.34)_0%,rgb(251_146_60/0.2)_18%,transparent_48%)]">
+              <div className="absolute left-[24%] top-[39%] max-w-[270px] rounded-lg border border-amber-100/70 bg-black/42 px-3 py-2 text-sm text-white shadow-xl backdrop-blur-sm">
+                The pot sits close to the hearth. For a moment, the room feels lived in again.
+              </div>
+            </div>
+          ) : null}
+
+          {activeChapterStep === 'restore' ? (
+            <div className="absolute inset-x-4 bottom-28 z-20 mx-auto max-w-xl rounded-lg border border-amber-100/75 bg-stone-950/72 p-4 text-white shadow-2xl backdrop-blur-md sm:bottom-32">
+              <p className="text-sm font-semibold text-amber-100">Restore the pot</p>
+              <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                <div className="rounded-lg border border-white/20 bg-white/10 p-4 text-center">Rim piece</div>
+                <Sparkles className="size-6 text-amber-200" aria-hidden="true" />
+                <div className="rounded-lg border border-white/20 bg-white/10 p-4 text-center">Body piece</div>
+              </div>
+              <p className="mt-3 text-sm text-stone-200">The dark line continues from one piece to the next.</p>
+            </div>
+          ) : null}
+
+          {activeChapterStep === 'decide' || activeChapterStep === 'complete' ? (
+            <div className="absolute inset-x-4 bottom-28 z-20 mx-auto max-w-2xl rounded-lg border border-amber-100/75 bg-stone-950/78 p-4 text-white shadow-2xl backdrop-blur-md sm:bottom-32">
+              <p className="text-sm font-semibold text-amber-100">What did the hearth memory suggest?</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
                 {[
-                  { value: 'survey', label: 'Map', Icon: Map },
-                  { value: 'excavation', label: 'Dig', Icon: Brush },
-                  { value: 'examination', label: 'Look', Icon: Search },
-                  { value: 'joins', label: 'Match', Icon: Rotate3D },
-                  { value: 'reconstruction', label: 'Build', Icon: Layers3 },
-                  { value: 'interpretation', label: 'Story', Icon: Lightbulb },
-                  { value: 'fieldwork', label: 'Practice', Icon: Archive },
-                ].filter(({ value }) => visibleScreens.includes(value as Screen)).map(({ value, label, Icon }) => (
-                  <TabsTrigger
-                    key={value}
-                    value={value}
-                    aria-label={label}
-                    className="h-9 min-w-20 gap-1 px-2 text-xs sm:text-sm"
+                  { id: 'daily' as const, label: 'Daily cooking', response: 'A repaired pot kept working here.' },
+                  { id: 'sudden' as const, label: 'Sudden damage', response: 'Maybe later, but not the first thing this memory says.' },
+                  { id: 'mixed' as const, label: 'Later mixing', response: 'Possible elsewhere; this clue still fits the hearth.' },
+                ].map((choice) => (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    onClick={() => chooseStory(choice.id)}
+                    className={`rounded-md border p-3 text-left text-sm transition hover:scale-[1.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 ${
+                      storyChoice === choice.id
+                        ? 'border-amber-100 bg-amber-200 text-stone-950'
+                        : 'border-white/25 bg-white/10 hover:bg-white/18'
+                    }`}
                   >
-                    <Icon className="size-4" aria-hidden="true" />
-                    <span>{label}</span>
-                  </TabsTrigger>
+                    <span className="block font-semibold">{choice.label}</span>
+                    <span className="mt-1 block text-xs opacity-80">{choice.response}</span>
+                  </button>
                 ))}
-              </TabsList>
-
-              <TabsContent value="survey" className="h-[calc(100%-48px)]">
-                <BoardFrame
-                  mode={mode}
-                  fieldworkLabel={activeFieldworkHistory.scenarioLabel}
-                  title="Choose a spot"
-                  description="Pick one area to search. The game will show only that area first."
-                >
-                  <SurveyOverlay onChoose={(target) => {
-                    setExcavationFocus(target.locationId);
-                    const nextFind =
-                      finds.find((find) => find.locationId === target.locationId && !findState[find.id]?.recovered) ??
-                      finds.find((find) => find.locationId === target.locationId);
-                    if (nextFind) setSelectedFindId(nextFind.id);
-                    setScreen('excavation');
-                    setGuidance(`${target.label}: brush first. Pick up anything that says ready.`);
-                  }} />
-                </BoardFrame>
-              </TabsContent>
-
-              <TabsContent value="excavation" className="h-[calc(100%-48px)]">
-                <BoardFrame
-                  mode={mode}
-                  fieldworkLabel={activeFieldworkHistory.scenarioLabel}
-                  title="Dig here"
-                  description={excavationDescription}
-                >
-                  <FindHotspots
-                    mode={mode}
-                    activeTool={currentTool}
-                    excavationFocus={excavationFocus}
-                    tutorialStep={tutorialStep}
-                    findState={findState}
-                    selectedFindId={selectedFindId}
-                    onAct={actOnFind}
-                    onSelect={setSelectedFindId}
-                  />
-                </BoardFrame>
-              </TabsContent>
-
-              <TabsContent value="examination" className="h-[calc(100%-48px)]">
-                <ExaminationTable
-                  find={selectedFind}
-                  state={selectedState}
-                  findState={findState}
-                  onClean={() => inspectFind(selectedFind)}
-                  onGroup={groupFind}
-                  onJoin={() => {
-                    setGuidance(joinHint(selectedFind, findState));
-                    setScreen('joins');
-                  }}
-                />
-              </TabsContent>
-
-              <TabsContent value="joins" className="h-[calc(100%-48px)]">
-                <JoinWorkspace
-                  recoveredFinds={recoveredFinds}
-                  findState={findState}
-                  onJoin={joinFinds}
-                  onGroup={groupFind}
-                />
-              </TabsContent>
-
-              <TabsContent value="reconstruction" className="h-[calc(100%-48px)]">
-                <BoardFrame
-                  mode={mode}
-                  fieldworkLabel={activeFieldworkHistory.scenarioLabel}
-                  title="Build the room"
-                  description="Place only the parts your clues can support."
-                >
-                  <ReconstructionOverlay
-                    placements={placements}
-                    recoveredFinds={recoveredFinds}
-                    findState={findState}
-                    onPlace={placeGroup}
-                  />
-                </BoardFrame>
-              </TabsContent>
-
-              <TabsContent value="interpretation" className="h-[calc(100%-48px)]">
-                <InterpretationReview
-                  scores={interpretationScores}
-                  chosen={chosenInterpretation}
-                  coreComplete={coreComplete}
-                  onChoose={(id) => {
-                    setChosenInterpretation(id);
-                    if (placedCount > 0) setHasCompletedMainLoop(true);
-                  }}
-                />
-              </TabsContent>
-
-              <TabsContent value="fieldwork" className="h-[calc(100%-48px)]">
-                <FieldworkPanel
-                  mode={mode}
-                  progress={sliceProgress}
-                  chosenScore={chosenScore}
-                  activeHistory={activeFieldworkHistory}
-                  onStart={startFieldworkVariation}
-                  onReturn={returnToExpedition}
-                />
-              </TabsContent>
-            </Tabs>
-          </div>
-
-          <EvidencePanel
-            selectedFind={selectedFind}
-            selectedState={selectedState}
-            recoveredFinds={recoveredFinds}
-            chosenScore={chosenScore}
-            coreComplete={coreComplete}
-            showCurrentStory={unlockedScreens.includes('interpretation')}
-            nextActionLabel={nextActionLabel}
-            onNextAction={followNextAction}
-            setSelectedFindId={setSelectedFindId}
-          />
-          <MobileContextDrawer
-            selectedFind={selectedFind}
-            selectedState={selectedState}
-            recoveredFinds={recoveredFinds}
-            chosenScore={chosenScore}
-            coreComplete={coreComplete}
-            showCurrentStory={unlockedScreens.includes('interpretation')}
-            nextActionLabel={nextActionLabel}
-            onNextAction={followNextAction}
-            setSelectedFindId={setSelectedFindId}
-          />
+              </div>
+            </div>
+          ) : null}
         </section>
+
+        <footer className="z-30 border-t border-amber-950/20 bg-stone-950/88 px-3 py-3 text-white shadow-2xl backdrop-blur-md sm:px-5">
+          <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
+              {hearthFinds.map((find) => {
+                const state = findState[find.id];
+                return (
+                  <span
+                    key={find.id}
+                    className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold ${
+                      state.recovered ? 'border-amber-100 bg-amber-100 text-stone-950' : 'border-white/20 bg-white/8 text-stone-300'
+                    }`}
+                  >
+                    {state.recovered ? 'Collected' : 'Hidden'}: piece {find.id}
+                  </span>
+                );
+              })}
+              {potRestored ? <Badge className="shrink-0 bg-emerald-500 text-white">Pot restored</Badge> : null}
+              {hearthMemoryAwake ? <Badge className="shrink-0 bg-orange-500 text-white">Memory awake</Badge> : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <details className="relative">
+                <summary className="flex h-11 cursor-pointer list-none items-center gap-2 rounded-md border border-white/20 bg-white/10 px-3 text-sm font-semibold transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 [&::-webkit-details-marker]:hidden">
+                  <BookOpen className="size-4" aria-hidden="true" />
+                  Notebook
+                </summary>
+                <div className="absolute bottom-14 right-0 w-[min(360px,calc(100vw-24px))] rounded-lg border border-amber-100/70 bg-stone-950 p-4 text-sm shadow-2xl">
+                  <p className="font-semibold text-amber-100">Unlocked notes</p>
+                  <ul className="mt-3 space-y-2 text-stone-200">
+                    <li>The soot line runs across both pot pieces.</li>
+                    {potRestored ? <li>The two fragments fit as one cooking pot.</li> : null}
+                    {hearthMemoryAwake ? <li>This first memory points to everyday use before the room changed.</li> : null}
+                  </ul>
+                </div>
+              </details>
+              <Button className="h-11 min-w-36 bg-amber-300 text-stone-950 hover:bg-amber-200" onClick={playChapterAction}>
+                {primaryGameAction}
+              </Button>
+            </div>
+          </div>
+        </footer>
       </div>
     </main>
   );
 }
 
-function ToolTray({
+function _ToolTray({
   activeTool,
   recommendedTool,
   availableTools,
@@ -1840,7 +1971,7 @@ function ToolTray({
   );
 }
 
-function BoardFrame({
+function _BoardFrame({
   children,
   mode,
   fieldworkLabel,
@@ -1878,7 +2009,7 @@ function BoardFrame({
   );
 }
 
-function SurveyOverlay({ onChoose }: { onChoose: (target: { label: string; locationId: ExcavationFocus }) => void }) {
+function _SurveyOverlay({ onChoose }: { onChoose: (target: { label: string; locationId: ExcavationFocus }) => void }) {
   const areas = [
     { label: 'Hearth', locationId: 'hearth' as const, x: 36, y: 56 },
     { label: 'Work bench', locationId: 'bench' as const, x: 66, y: 31 },
@@ -1902,7 +2033,7 @@ function SurveyOverlay({ onChoose }: { onChoose: (target: { label: string; locat
   );
 }
 
-function FindHotspots({
+function _FindHotspots({
   mode,
   activeTool,
   excavationFocus,
@@ -1921,7 +2052,8 @@ function FindHotspots({
   onAct: (find: Find) => void;
   onSelect: (id: string) => void;
 }) {
-  const [dragging, setDragging] = useState(false);
+  const dragging = false;
+  const setDragging = (_value: boolean) => undefined;
   const dragTool = activeTool === 'brush' || activeTool === 'pick';
   const selectedFocus = finds.find((find) => {
     const state = findState[find.id];
@@ -2030,7 +2162,7 @@ function FindHotspots({
   );
 }
 
-function ExaminationTable({
+function _ExaminationTable({
   find,
   state,
   findState,
@@ -2132,7 +2264,7 @@ function ExaminationTable({
   );
 }
 
-function JoinWorkspace({
+function _JoinWorkspace({
   recoveredFinds,
   findState,
   onJoin,
@@ -2145,15 +2277,18 @@ function JoinWorkspace({
 }) {
   const recoveredIds = new Set(recoveredFinds.map((find) => find.id));
   const pairOptions = joinPairs.filter((pair) => pair.ids.every((id) => recoveredIds.has(id)));
-  const [activePairId, setActivePairId] = useState(pairOptions[0]?.id ?? joinPairs[0].id);
-  const [groupingFindId, setGroupingFindId] = useState(recoveredFinds[0]?.id ?? '1');
+  const activePairId = pairOptions[0]?.id ?? joinPairs[0].id;
+  const setActivePairId = (_id: string) => undefined;
+  const groupingFindId = recoveredFinds[0]?.id ?? '1';
+  const setGroupingFindId = (_id: string) => undefined;
   const activePair = pairOptions.find((pair) => pair.id === activePairId) ?? pairOptions[0] ?? joinPairs[0];
   const pairFinds = activePair.ids.map((id) => finds.find((find) => find.id === id) ?? finds[0]) as [Find, Find];
   const groupingFind = recoveredFinds.find((find) => find.id === groupingFindId) ?? recoveredFinds[0];
-  const [transforms, setTransforms] = useState<Record<string, FragmentTransform>>({
+  const transforms: Record<string, FragmentTransform> = {
     [activePair.ids[0]]: { x: 28, y: 50, rotation: -16 },
     [activePair.ids[1]]: { x: 68, y: 50, rotation: 18 },
-  });
+  };
+  const setTransforms = (_next: Record<string, FragmentTransform> | ((current: Record<string, FragmentTransform>) => Record<string, FragmentTransform>)) => undefined;
   const firstTransform = transforms[activePair.ids[0]] ?? { x: 28, y: 50, rotation: -16 };
   const secondTransform = transforms[activePair.ids[1]] ?? { x: 68, y: 50, rotation: 18 };
   const distance = Math.hypot(firstTransform.x - 46, firstTransform.y - 50) + Math.hypot(secondTransform.x - 54, secondTransform.y - 50);
@@ -2360,7 +2495,7 @@ function Relationship({
   );
 }
 
-function ReconstructionOverlay({
+function _ReconstructionOverlay({
   placements,
   recoveredFinds,
   findState,
@@ -2461,7 +2596,7 @@ function ReconstructionStage({ zoneId, placed }: { zoneId: string; placed: boole
   );
 }
 
-function InterpretationReview({
+function _InterpretationReview({
   scores,
   chosen,
   coreComplete,
@@ -2530,7 +2665,7 @@ function InterpretationReview({
   );
 }
 
-function FieldworkPanel({
+function _FieldworkPanel({
   mode,
   progress,
   chosenScore,
@@ -2593,7 +2728,7 @@ function FieldworkPanel({
   );
 }
 
-function EvidencePanel({
+function _EvidencePanel({
   selectedFind,
   selectedState,
   recoveredFinds,
@@ -2617,7 +2752,7 @@ function EvidencePanel({
   return (
     <aside className="hidden min-h-0 border-l border-border bg-card lg:block">
       <div className="flex h-full flex-col">
-        <ContextContent
+        <_ContextContent
           selectedFind={selectedFind}
           selectedState={selectedState}
           recoveredFinds={recoveredFinds}
@@ -2633,7 +2768,7 @@ function EvidencePanel({
   );
 }
 
-function MobileContextDrawer({
+function _MobileContextDrawer({
   selectedFind,
   selectedState,
   recoveredFinds,
@@ -2673,7 +2808,7 @@ function MobileContextDrawer({
             </DrawerDescription>
           </DrawerHeader>
           <div className="min-h-0 flex-1 overflow-auto">
-            <ContextContent
+            <_ContextContent
               selectedFind={selectedFind}
               selectedState={selectedState}
               recoveredFinds={recoveredFinds}
@@ -2691,7 +2826,7 @@ function MobileContextDrawer({
   );
 }
 
-function ContextContent({
+function _ContextContent({
   selectedFind,
   selectedState,
   recoveredFinds,
