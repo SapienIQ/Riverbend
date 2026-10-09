@@ -128,6 +128,8 @@ type FragmentTransform = {
 
 type RestoreFragmentId = 'rim' | 'body';
 type RestorePuzzleState = Record<RestoreFragmentId, FragmentTransform>;
+type PlacePuzzleId = 'hearth' | 'threshold';
+type PlacePuzzleState = Record<PlacePuzzleId, FragmentTransform>;
 
 const initialRestorePuzzle: RestorePuzzleState = {
   rim: { x: 24, y: 50, rotation: -18 },
@@ -137,6 +139,16 @@ const initialRestorePuzzle: RestorePuzzleState = {
 const restoreTargets: RestorePuzzleState = {
   rim: { x: 43, y: 50, rotation: 0 },
   body: { x: 57, y: 50, rotation: 0 },
+};
+
+const initialPlacePuzzle: PlacePuzzleState = {
+  hearth: { x: 78, y: 72, rotation: 0 },
+  threshold: { x: 28, y: 74, rotation: 0 },
+};
+
+const placeTargets: PlacePuzzleState = {
+  hearth: { x: 36, y: 57, rotation: 0 },
+  threshold: { x: 50, y: 77, rotation: 0 },
 };
 
 const tools: {
@@ -923,8 +935,11 @@ export default function Home() {
   const [thresholdChoice, setThresholdChoice] = useState<ThresholdChoice | null>(null);
   const [restorePuzzle, setRestorePuzzle] = useState<RestorePuzzleState>(initialRestorePuzzle);
   const [draggingFragment, setDraggingFragment] = useState<RestoreFragmentId | null>(null);
+  const [placePuzzle, setPlacePuzzle] = useState<PlacePuzzleState>(initialPlacePuzzle);
+  const [draggingPlace, setDraggingPlace] = useState<PlacePuzzleId | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const restoreBoardRef = useRef<HTMLDivElement | null>(null);
+  const sceneRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
@@ -956,6 +971,7 @@ export default function Home() {
           storyChoice?: StoryChoice | null;
           thresholdChoice?: ThresholdChoice | null;
           restorePuzzle?: RestorePuzzleState;
+          placePuzzle?: PlacePuzzleState;
         };
         const restoredFindState = parsed.findState ?? initialFindState;
         const restoredPlacements = parsed.placements ?? {};
@@ -980,6 +996,7 @@ export default function Home() {
         setStoryChoice(parsed.storyChoice ?? null);
         setThresholdChoice(parsed.thresholdChoice ?? null);
         setRestorePuzzle(parsed.restorePuzzle ?? initialRestorePuzzle);
+        setPlacePuzzle(parsed.placePuzzle ?? initialPlacePuzzle);
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
       } finally {
@@ -1146,6 +1163,19 @@ export default function Home() {
     : restoreNear
       ? 'Almost there.'
       : 'Move the pieces together.';
+  const activePlaceId: PlacePuzzleId = chapterId === 'threshold_memory' ? 'threshold' : 'hearth';
+  const placeScore = fragmentDistance(placePuzzle[activePlaceId], placeTargets[activePlaceId]);
+  const placeReady = placeScore <= 9;
+  const placeNear = placeReady || placeScore <= 20;
+  const placePrompt = placeReady
+    ? chapterId === 'threshold_memory'
+      ? 'The bead knows the doorway.'
+      : 'The pot knows the hearth.'
+    : placeNear
+      ? 'Almost in place.'
+      : chapterId === 'threshold_memory'
+        ? 'Carry the bead to the doorway.'
+        : 'Carry the pot to the hearth.';
   const activeChapterStep: ChapterStep =
     chapterId === 'threshold_memory'
       ? thresholdChoice
@@ -1194,7 +1224,7 @@ export default function Home() {
       : activeChapterStep === 'restore'
         ? restorePrompt
         : activeChapterStep === 'place'
-          ? 'The restored pot belongs beside the warm ash.'
+          ? placePrompt
           : activeChapterStep === 'memory'
             ? 'The room is ready to remember.'
             : activeChapterStep === 'decide'
@@ -1218,9 +1248,11 @@ export default function Home() {
               ? 'Wake the doorway'
               : 'Wake the room'
             : activeGameVerb === 'place'
-              ? chapterId === 'threshold_memory'
-                ? 'Place by doorway'
-                : 'Place by hearth'
+              ? placeReady
+                ? 'Set it down'
+                : chapterId === 'threshold_memory'
+                  ? 'Place by doorway'
+                  : 'Place by hearth'
               : 'Choose a meaning';
   const nextDiscoverFind = firstPotState.recovered ? hearthFinds[1] : hearthFinds[0];
   const activeDiscoverFind = chapterId === 'threshold_memory' ? beadFind : nextDiscoverFind;
@@ -1371,6 +1403,11 @@ export default function Home() {
       return;
     }
     if (activeChapterStep === 'place') {
+      if (!placeReady) {
+        setGuidance(placeNear ? 'Almost in place.' : chapterId === 'threshold_memory' ? 'Carry the bead to the doorway.' : 'Carry the pot to the hearth.');
+        playCue('blocked');
+        return;
+      }
       setPlacements((current) =>
         chapterId === 'threshold_memory' ? { ...current, threshold: '20' } : { ...current, hearth: '1' },
       );
@@ -1425,6 +1462,8 @@ export default function Home() {
     setChapterStep('discover');
     setSelectedFindId('20');
     setExcavationFocus('threshold');
+    setPlacePuzzle((current) => ({ ...current, threshold: initialPlacePuzzle.threshold }));
+    setDraggingPlace(null);
     setGuidance('A tiny blue bead waits near the doorway. Reveal it gently.');
     playCue('clean');
   }
@@ -1470,9 +1509,10 @@ export default function Home() {
         storyChoice,
         thresholdChoice,
         restorePuzzle,
+        placePuzzle,
       }),
     );
-  }, [activeChapterStep, chapterId, chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, knownMarks, memoryUnlocks, mode, placements, restorePuzzle, screen, selectedFindId, soundEnabled, storyChoice, thresholdChoice, tutorialStep, unlockedScreens]);
+  }, [activeChapterStep, chapterId, chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, knownMarks, memoryUnlocks, mode, placePuzzle, placements, restorePuzzle, screen, selectedFindId, soundEnabled, storyChoice, thresholdChoice, tutorialStep, unlockedScreens]);
 
   function updateFind(id: string, patch: Partial<FindState>) {
     setFindState((current) => ({
@@ -1756,6 +1796,45 @@ export default function Home() {
     playCue('clean');
   }
 
+  function setPlaceTokenPosition(id: PlacePuzzleId, event: ReactPointerEvent<HTMLElement>) {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const rect = scene.getBoundingClientRect();
+    const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 10, 90);
+    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 14, 86);
+    setPlacePuzzle((current) => ({
+      ...current,
+      [id]: { ...current[id], x, y },
+    }));
+  }
+
+  function handlePlacePointerDown(id: PlacePuzzleId, event: ReactPointerEvent<HTMLButtonElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDraggingPlace(id);
+    setPlaceTokenPosition(id, event);
+  }
+
+  function handlePlacePointerMove(id: PlacePuzzleId, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (draggingPlace !== id) return;
+    setPlaceTokenPosition(id, event);
+  }
+
+  function handlePlacePointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setDraggingPlace(null);
+  }
+
+  function nudgePlacePuzzle() {
+    setPlacePuzzle((current) => ({
+      ...current,
+      [activePlaceId]: moveToward(current[activePlaceId], placeTargets[activePlaceId], 0.65),
+    }));
+    setGuidance(placeNear ? 'Almost in place.' : placePrompt);
+    playCue('clean');
+  }
+
   function saveNow() {
     window.localStorage.setItem(
       STORAGE_KEY,
@@ -1781,6 +1860,7 @@ export default function Home() {
         storyChoice,
         thresholdChoice,
         restorePuzzle,
+        placePuzzle,
       }),
     );
     setSaved(true);
@@ -1812,6 +1892,8 @@ export default function Home() {
     setThresholdChoice(null);
     setRestorePuzzle(initialRestorePuzzle);
     setDraggingFragment(null);
+    setPlacePuzzle(initialPlacePuzzle);
+    setDraggingPlace(null);
     playCue('place');
   }
 
@@ -2040,7 +2122,7 @@ export default function Home() {
           </details>
         </header>
 
-        <section className="relative min-h-0 flex-1 overflow-hidden">
+        <section ref={sceneRef} className="relative min-h-0 flex-1 overflow-hidden">
           <Image
             className="absolute inset-0 size-full object-cover saturate-[0.82] sepia-[0.16]"
             src="/assets/riverbend-workshop.png"
@@ -2108,6 +2190,60 @@ export default function Home() {
                 </span>
               </div>
             </div>
+          ) : null}
+
+          {activeChapterStep === 'place' ? (
+            <>
+              <div
+                className={`pointer-events-none absolute z-[9] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-2xl transition ${
+                  placeReady
+                    ? 'size-32 border-amber-100/80 bg-amber-300/24 shadow-[0_0_80px_rgb(254_243_199/0.6)]'
+                    : placeNear
+                      ? 'size-28 border-amber-100/65 bg-amber-300/18 shadow-[0_0_58px_rgb(254_243_199/0.38)]'
+                      : 'size-24 border-white/40 bg-white/8'
+                }`}
+                style={{
+                  left: `${placeTargets[activePlaceId].x}%`,
+                  top: `${placeTargets[activePlaceId].y}%`,
+                }}
+              />
+              <div className="absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-amber-100/65 bg-stone-950/72 px-3 py-2 text-xs font-semibold text-white shadow-xl backdrop-blur-md">
+                <span>{placePrompt}</span>
+                <button
+                  type="button"
+                  onClick={nudgePlacePuzzle}
+                  className="rounded-full border border-white/20 bg-white/10 px-2 py-1 text-[11px] transition hover:bg-white/18 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
+                >
+                  Move closer
+                </button>
+              </div>
+              <button
+                type="button"
+                aria-label={chapterId === 'threshold_memory' ? 'Bead memory token. Drag to doorway.' : 'Pot memory token. Drag to hearth.'}
+                onPointerDown={(event) => handlePlacePointerDown(activePlaceId, event)}
+                onPointerMove={(event) => handlePlacePointerMove(activePlaceId, event)}
+                onPointerUp={handlePlacePointerUp}
+                onPointerCancel={handlePlacePointerUp}
+                className={`absolute z-20 flex touch-none select-none items-center justify-center rounded-full border-2 text-white shadow-2xl transition hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 active:scale-95 ${
+                  draggingPlace === activePlaceId
+                    ? 'border-amber-100 bg-amber-500/80 shadow-[0_0_44px_rgb(253_230_138/0.6)]'
+                    : chapterId === 'threshold_memory'
+                      ? 'size-20 border-sky-100/80 bg-sky-600/76'
+                      : 'size-24 border-amber-100/80 bg-orange-700/78'
+                }`}
+                style={{
+                  left: `${placePuzzle[activePlaceId].x}%`,
+                  top: `${placePuzzle[activePlaceId].y}%`,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              >
+                {chapterId === 'threshold_memory' ? (
+                  <KeptCloseMark className="size-10 text-sky-100" />
+                ) : (
+                  <WarmMealMark className="size-12 text-amber-100" />
+                )}
+              </button>
+            </>
           ) : null}
 
           {activeChapterStep === 'restore' ? (
@@ -2322,7 +2458,7 @@ export default function Home() {
               </details>
               <Button
                 className="h-11 min-w-36 bg-amber-300 text-stone-950 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-55"
-                disabled={activeChapterStep === 'restore' && !restoreReady}
+                disabled={(activeChapterStep === 'restore' && !restoreReady) || (activeChapterStep === 'place' && !placeReady)}
                 onClick={playChapterAction}
               >
                 {primaryGameAction}
