@@ -12,6 +12,8 @@ import {
   Hammer,
   Hand,
   Menu,
+  RotateCcw,
+  RotateCw,
   Rotate3D,
   Save,
   ShieldCheck,
@@ -21,7 +23,7 @@ import {
   SunMedium,
 } from 'lucide-react';
 import Image from 'next/image';
-import type { ElementType, ReactNode } from 'react';
+import type { ElementType, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -122,6 +124,19 @@ type FragmentTransform = {
   x: number;
   y: number;
   rotation: number;
+};
+
+type RestoreFragmentId = 'rim' | 'body';
+type RestorePuzzleState = Record<RestoreFragmentId, FragmentTransform>;
+
+const initialRestorePuzzle: RestorePuzzleState = {
+  rim: { x: 24, y: 50, rotation: -18 },
+  body: { x: 76, y: 50, rotation: 20 },
+};
+
+const restoreTargets: RestorePuzzleState = {
+  rim: { x: 43, y: 50, rotation: 0 },
+  body: { x: 57, y: 50, rotation: 0 },
 };
 
 const tools: {
@@ -708,6 +723,35 @@ function clamp(value: number, min = 0, max = 100) {
   return Math.min(max, Math.max(min, value));
 }
 
+function normalizeRotation(rotation: number) {
+  const normalized = ((rotation + 180) % 360 + 360) % 360 - 180;
+  return Math.abs(normalized) === 180 ? 180 : normalized;
+}
+
+function rotationDistance(rotation: number, target: number) {
+  return Math.abs(normalizeRotation(rotation - target));
+}
+
+function fragmentDistance(fragment: FragmentTransform, target: FragmentTransform) {
+  return Math.hypot(fragment.x - target.x, fragment.y - target.y);
+}
+
+function restoreFitScore(puzzle: RestorePuzzleState) {
+  const rimDistance = fragmentDistance(puzzle.rim, restoreTargets.rim);
+  const bodyDistance = fragmentDistance(puzzle.body, restoreTargets.body);
+  const rimRotation = rotationDistance(puzzle.rim.rotation, restoreTargets.rim.rotation);
+  const bodyRotation = rotationDistance(puzzle.body.rotation, restoreTargets.body.rotation);
+  return rimDistance + bodyDistance + rimRotation / 5 + bodyRotation / 5;
+}
+
+function moveToward(current: FragmentTransform, target: FragmentTransform, amount: number): FragmentTransform {
+  return {
+    x: current.x + (target.x - current.x) * amount,
+    y: current.y + (target.y - current.y) * amount,
+    rotation: normalizeRotation(current.rotation + normalizeRotation(target.rotation - current.rotation) * amount),
+  };
+}
+
 function toolById(id: Tool) {
   return tools.find((tool) => tool.id === id) ?? tools[0];
 }
@@ -877,7 +921,10 @@ export default function Home() {
   const [knownMarks, setKnownMarks] = useState<KnownMark[]>([]);
   const [storyChoice, setStoryChoice] = useState<StoryChoice | null>(null);
   const [thresholdChoice, setThresholdChoice] = useState<ThresholdChoice | null>(null);
+  const [restorePuzzle, setRestorePuzzle] = useState<RestorePuzzleState>(initialRestorePuzzle);
+  const [draggingFragment, setDraggingFragment] = useState<RestoreFragmentId | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const restoreBoardRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
@@ -908,6 +955,7 @@ export default function Home() {
           knownMarks?: KnownMark[];
           storyChoice?: StoryChoice | null;
           thresholdChoice?: ThresholdChoice | null;
+          restorePuzzle?: RestorePuzzleState;
         };
         const restoredFindState = parsed.findState ?? initialFindState;
         const restoredPlacements = parsed.placements ?? {};
@@ -931,6 +979,7 @@ export default function Home() {
         setKnownMarks(parsed.knownMarks ?? []);
         setStoryChoice(parsed.storyChoice ?? null);
         setThresholdChoice(parsed.thresholdChoice ?? null);
+        setRestorePuzzle(parsed.restorePuzzle ?? initialRestorePuzzle);
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
       } finally {
@@ -1089,6 +1138,14 @@ export default function Home() {
   const thresholdMemoryAwake = memoryUnlocks.includes('threshold_memory');
   const warmMealMarkKnown = knownMarks.includes('warm_meal');
   const keptCloseMarkKnown = knownMarks.includes('kept_close');
+  const restoreScore = restoreFitScore(restorePuzzle);
+  const restoreReady = restoreScore <= 8;
+  const restoreNear = restoreReady || restoreScore <= 20;
+  const restorePrompt = restoreReady
+    ? 'The pieces remember each other.'
+    : restoreNear
+      ? 'Almost there.'
+      : 'Move the pieces together.';
   const activeChapterStep: ChapterStep =
     chapterId === 'threshold_memory'
       ? thresholdChoice
@@ -1135,7 +1192,7 @@ export default function Home() {
       : activeChapterStep === 'discover'
       ? guidance
       : activeChapterStep === 'restore'
-        ? 'Two pieces remember the same shape.'
+        ? restorePrompt
         : activeChapterStep === 'place'
           ? 'The restored pot belongs beside the warm ash.'
           : activeChapterStep === 'memory'
@@ -1153,7 +1210,9 @@ export default function Home() {
       : activeGameVerb === 'collect'
         ? 'Collect'
         : activeGameVerb === 'restore'
-          ? 'Restore pot'
+          ? restoreReady
+            ? 'Join pieces'
+            : 'Restore pot'
           : activeChapterStep === 'memory'
             ? chapterId === 'threshold_memory'
               ? 'Wake the doorway'
@@ -1291,6 +1350,11 @@ export default function Home() {
       return;
     }
     if (activeChapterStep === 'restore') {
+      if (!restoreReady) {
+        setGuidance(restoreNear ? 'Almost there.' : 'Move the pieces together.');
+        playCue('blocked');
+        return;
+      }
       updateFind('1', {
         joinedWith: [...new Set([...findState['1'].joinedWith, '2'])],
         groups: [...new Set([...findState['1'].groups, 'cooking'])],
@@ -1405,9 +1469,10 @@ export default function Home() {
         knownMarks,
         storyChoice,
         thresholdChoice,
+        restorePuzzle,
       }),
     );
-  }, [activeChapterStep, chapterId, chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, knownMarks, memoryUnlocks, mode, placements, screen, selectedFindId, soundEnabled, storyChoice, thresholdChoice, tutorialStep, unlockedScreens]);
+  }, [activeChapterStep, chapterId, chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, knownMarks, memoryUnlocks, mode, placements, restorePuzzle, screen, selectedFindId, soundEnabled, storyChoice, thresholdChoice, tutorialStep, unlockedScreens]);
 
   function updateFind(id: string, patch: Partial<FindState>) {
     setFindState((current) => ({
@@ -1641,6 +1706,56 @@ export default function Home() {
     playCue('place');
   }
 
+  function setRestoreFragmentPosition(id: RestoreFragmentId, event: ReactPointerEvent<HTMLElement>) {
+    const board = restoreBoardRef.current;
+    if (!board) return;
+    const rect = board.getBoundingClientRect();
+    const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 16, 84);
+    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 24, 76);
+    setRestorePuzzle((current) => ({
+      ...current,
+      [id]: { ...current[id], x, y },
+    }));
+  }
+
+  function handleRestorePointerDown(id: RestoreFragmentId, event: ReactPointerEvent<HTMLButtonElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDraggingFragment(id);
+    setRestoreFragmentPosition(id, event);
+  }
+
+  function handleRestorePointerMove(id: RestoreFragmentId, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (draggingFragment !== id) return;
+    setRestoreFragmentPosition(id, event);
+  }
+
+  function handleRestorePointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setDraggingFragment(null);
+  }
+
+  function rotateRestoreFragment(id: RestoreFragmentId, amount: number) {
+    setRestorePuzzle((current) => ({
+      ...current,
+      [id]: {
+        ...current[id],
+        rotation: normalizeRotation(current[id].rotation + amount),
+      },
+    }));
+    playCue('stabilize');
+  }
+
+  function nudgeRestorePuzzle() {
+    setRestorePuzzle((current) => ({
+      rim: moveToward(current.rim, restoreTargets.rim, 0.55),
+      body: moveToward(current.body, restoreTargets.body, 0.55),
+    }));
+    setGuidance('The pieces slide closer.');
+    playCue('clean');
+  }
+
   function saveNow() {
     window.localStorage.setItem(
       STORAGE_KEY,
@@ -1665,6 +1780,7 @@ export default function Home() {
         knownMarks,
         storyChoice,
         thresholdChoice,
+        restorePuzzle,
       }),
     );
     setSaved(true);
@@ -1694,6 +1810,8 @@ export default function Home() {
     setKnownMarks([]);
     setStoryChoice(null);
     setThresholdChoice(null);
+    setRestorePuzzle(initialRestorePuzzle);
+    setDraggingFragment(null);
     playCue('place');
   }
 
@@ -1993,25 +2111,96 @@ export default function Home() {
           ) : null}
 
           {activeChapterStep === 'restore' ? (
-            <div className="absolute inset-x-4 bottom-28 z-20 mx-auto max-w-xl rounded-lg border border-amber-100/75 bg-stone-950/72 p-4 text-white shadow-2xl backdrop-blur-md sm:bottom-32">
-              <p className="text-sm font-semibold text-amber-100">Restore the pot</p>
-              <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                <div className="relative min-h-28 overflow-hidden rounded-lg border border-white/20 bg-gradient-to-br from-orange-200/20 to-stone-700/40 p-4 text-center transition hover:border-amber-100/70">
-                  <div className="absolute -right-8 top-5 size-28 rounded-full border-[18px] border-orange-100/35" />
-                  <WarmMealMark className="mx-auto text-amber-100" />
-                  <span className="mt-2 block text-sm font-semibold">Rim piece</span>
+            <div className="absolute inset-x-3 bottom-24 z-20 mx-auto max-w-2xl rounded-lg border border-amber-100/75 bg-stone-950/76 p-3 text-white shadow-2xl backdrop-blur-md sm:bottom-28 sm:p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-amber-100">Restore the pot</p>
+                  <p className="text-xs text-stone-200">{restorePrompt}</p>
                 </div>
-                <div className="flex flex-col items-center gap-1 text-amber-100">
-                  <Sparkles className="size-6" aria-hidden="true" />
-                  <span className="h-12 w-1 rounded-full bg-amber-100/70 shadow-[0_0_22px_rgb(254_243_199/0.75)]" />
-                </div>
-                <div className="relative min-h-28 overflow-hidden rounded-lg border border-white/20 bg-gradient-to-bl from-orange-200/20 to-stone-700/40 p-4 text-center transition hover:border-amber-100/70">
-                  <div className="absolute -left-8 top-5 size-28 rounded-full border-[18px] border-orange-100/35" />
-                  <WarmMealMark className="mx-auto text-amber-100" />
-                  <span className="mt-2 block text-sm font-semibold">Body piece</span>
-                </div>
+                <Button
+                  className="h-9 border-amber-100/40 bg-white/10 px-3 text-xs text-white hover:bg-white/18"
+                  onClick={nudgeRestorePuzzle}
+                  variant="outline"
+                >
+                  Move closer
+                </Button>
               </div>
-              <p className="mt-3 text-sm text-stone-200">The same little mark appears on both pieces.</p>
+              <div
+                ref={restoreBoardRef}
+                className="relative mt-3 h-56 overflow-hidden rounded-md border border-white/15 bg-[radial-gradient(circle_at_50%_50%,rgb(253_230_138/0.16),rgb(41_37_36/0.7)_58%,rgb(12_10_9/0.86))] sm:h-64"
+                aria-label="Pot restore board"
+              >
+                <div
+                  className={`pointer-events-none absolute left-1/2 top-1/2 h-32 w-48 -translate-x-1/2 -translate-y-1/2 rounded-full border-[14px] transition ${
+                    restoreNear ? 'border-amber-100/45 shadow-[0_0_42px_rgb(254_243_199/0.45)]' : 'border-white/10'
+                  }`}
+                />
+                {restoreReady ? (
+                  <div className="pointer-events-none absolute inset-x-0 top-4 mx-auto flex w-fit items-center gap-2 rounded-full border border-amber-100/60 bg-amber-100/18 px-3 py-1 text-xs font-semibold text-amber-50">
+                    <Sparkles className="size-4" aria-hidden="true" />
+                    The pieces remember each other
+                  </div>
+                ) : null}
+                {(['rim', 'body'] as const).map((fragmentId) => {
+                  const fragment = restorePuzzle[fragmentId];
+                  const isRim = fragmentId === 'rim';
+                  return (
+                    <div
+                      key={fragmentId}
+                      className="absolute z-10"
+                      style={{
+                        left: `${fragment.x}%`,
+                        top: `${fragment.y}%`,
+                        transform: 'translate(-50%, -50%)',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        aria-label={`${isRim ? 'Rim' : 'Body'} piece. Drag to move.`}
+                        onPointerDown={(event) => handleRestorePointerDown(fragmentId, event)}
+                        onPointerMove={(event) => handleRestorePointerMove(fragmentId, event)}
+                        onPointerUp={handleRestorePointerUp}
+                        onPointerCancel={handleRestorePointerUp}
+                        className={`group relative flex h-28 w-36 touch-none select-none items-center justify-center overflow-hidden rounded-[46%] border-2 bg-gradient-to-br from-orange-200/35 to-stone-700/85 shadow-xl transition hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 active:scale-95 ${
+                          draggingFragment === fragmentId ? 'border-amber-100 shadow-[0_0_34px_rgb(253_230_138/0.45)]' : 'border-white/25'
+                        }`}
+                        style={{
+                          borderTopLeftRadius: isRim ? '62%' : '34%',
+                          borderTopRightRadius: isRim ? '34%' : '62%',
+                          transform: `rotate(${fragment.rotation}deg)`,
+                        }}
+                      >
+                        <div className={`absolute top-5 size-32 rounded-full border-[18px] border-orange-100/40 ${isRim ? '-right-11' : '-left-11'}`} />
+                        <WarmMealMark className="relative z-10 text-amber-100" />
+                        <span className="absolute bottom-2 rounded-full bg-black/45 px-2 py-0.5 text-[11px] font-semibold text-white">
+                          {isRim ? 'Rim' : 'Body'}
+                        </span>
+                      </button>
+                      <div className="mt-2 flex justify-center gap-1">
+                        <button
+                          type="button"
+                          aria-label={`Rotate ${isRim ? 'rim' : 'body'} left`}
+                          onClick={() => rotateRestoreFragment(fragmentId, -15)}
+                          className="flex size-8 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
+                        >
+                          <RotateCcw className="size-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Rotate ${isRim ? 'rim' : 'body'} right`}
+                          onClick={() => rotateRestoreFragment(fragmentId, 15)}
+                          className="flex size-8 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
+                        >
+                          <RotateCw className="size-4" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-sm text-stone-200">
+                {restoreReady ? 'Ready. Join the pieces.' : restoreNear ? 'A soft outline appears when the pieces are close.' : 'Drag the pieces into the glowing outline, then turn them until the marks face upright.'}
+              </p>
             </div>
           ) : null}
 
@@ -2131,7 +2320,11 @@ export default function Home() {
                   </div>
                 </div>
               </details>
-              <Button className="h-11 min-w-36 bg-amber-300 text-stone-950 hover:bg-amber-200" onClick={playChapterAction}>
+              <Button
+                className="h-11 min-w-36 bg-amber-300 text-stone-950 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-55"
+                disabled={activeChapterStep === 'restore' && !restoreReady}
+                onClick={playChapterAction}
+              >
                 {primaryGameAction}
               </Button>
             </div>
