@@ -4,6 +4,8 @@ Riverbend Workshop is a compact archaeology-themed cozy mystery puzzle set in th
 
 The main game surface should feel like play first and archaeological reasoning second. Professional procedure, evidence metadata, confidence math, and detailed notes belong in the optional Notebook or in hidden support logic, not in the first playable loop.
 
+Riverbend may gradually reveal a tiny visual mark vocabulary, but it should begin as recognition through objects rather than a language lesson. The first chapter teaches only one mark: a warm meal sign that appears across the restored cooking pot and is recorded in the Notebook after the room memory wakes.
+
 ## Site History
 
 The structure is a mudbrick-and-timber room attached to a courtyard. Phase I used the room for domestic cooking and storage around a hearth. Phase II reduced hearth use and added a textile workbench, household repair, and small-scale pigment or dye finishing connected to river trade. Phase III briefly reused the room for storage, threshold repair, and possible planned closure before roof collapse and later disturbance complicated the record.

@@ -52,6 +52,7 @@ type TutorialStep = 'firstBrush' | 'firstLift' | 'firstLook' | 'firstMatch' | 'f
 type ChapterStep = 'discover' | 'restore' | 'place' | 'memory' | 'decide' | 'complete';
 type GameVerb = 'reveal' | 'collect' | 'restore' | 'place' | 'decide';
 type MemoryUnlock = 'hearth_memory';
+type KnownMark = 'warm_meal';
 type StoryChoice = 'daily' | 'sudden' | 'mixed';
 type Confidence =
   | 'Confirmed'
@@ -824,6 +825,21 @@ function tutorialStepForState(
   return 'firstBrush';
 }
 
+function WarmMealMark({ className = '' }: { className?: string }) {
+  return (
+    <span
+      aria-label="warm meal mark"
+      className={`relative inline-flex size-10 items-center justify-center rounded-full border-2 border-current ${className}`}
+    >
+      <span className="absolute top-1 h-2.5 w-0.5 rounded-full bg-current" />
+      <span className="absolute bottom-1 h-2.5 w-0.5 rounded-full bg-current" />
+      <span className="absolute h-0.5 w-6 rounded-full bg-current" />
+      <span className="absolute h-6 w-0.5 rounded-full bg-current" />
+      <span className="absolute size-2.5 rounded-full bg-current" />
+    </span>
+  );
+}
+
 export default function Home() {
   const [screen, setScreen] = useState<Screen>('excavation');
   const [mode, setMode] = useState<'expedition' | 'fieldwork'>('expedition');
@@ -833,7 +849,7 @@ export default function Home() {
   const [findState, setFindState] = useState<Record<string, FindState>>(initialFindState);
   const [placements, setPlacements] = useState<Record<string, string>>({});
   const [chosenInterpretation, setChosenInterpretation] = useState<'A' | 'B' | 'C'>('B');
-  const [guidance, setGuidance] = useState('Something is peeking through by the hearth. Brush it gently.');
+  const [guidance, setGuidance] = useState('Something is peeking through by the hearth. Reveal it gently.');
   const [saved, setSaved] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -842,6 +858,7 @@ export default function Home() {
   const [chapterId, setChapterId] = useState('hearth_memory');
   const [_chapterStep, setChapterStep] = useState<ChapterStep>('discover');
   const [memoryUnlocks, setMemoryUnlocks] = useState<MemoryUnlock[]>([]);
+  const [knownMarks, setKnownMarks] = useState<KnownMark[]>([]);
   const [storyChoice, setStoryChoice] = useState<StoryChoice | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
@@ -871,6 +888,7 @@ export default function Home() {
           chapterId?: string;
           chapterStep?: ChapterStep;
           memoryUnlocks?: MemoryUnlock[];
+          knownMarks?: KnownMark[];
           storyChoice?: StoryChoice | null;
         };
         const restoredFindState = parsed.findState ?? initialFindState;
@@ -885,13 +903,14 @@ export default function Home() {
         setFindState(restoredFindState);
         setPlacements(restoredPlacements);
         setChosenInterpretation(parsed.chosenInterpretation ?? 'B');
-        setGuidance(parsed.guidance ?? 'Something is peeking through by the hearth. Brush it gently.');
+        setGuidance(parsed.guidance ?? 'Something is peeking through by the hearth. Reveal it gently.');
         setSoundEnabled(parsed.soundEnabled ?? true);
         setFieldworkHistoryId(parsed.fieldworkHistoryId ?? 'threshold');
         setHasCompletedMainLoop(restoredComplete);
         setChapterId(parsed.chapterId ?? 'hearth_memory');
         setChapterStep(parsed.chapterStep ?? 'discover');
         setMemoryUnlocks(parsed.memoryUnlocks ?? []);
+        setKnownMarks(parsed.knownMarks ?? []);
         setStoryChoice(parsed.storyChoice ?? null);
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
@@ -1043,6 +1062,7 @@ export default function Home() {
   const potRestored = hasConfirmedJoin(findState, ['1', '2']);
   const hearthPlaced = Boolean(placements.hearth);
   const hearthMemoryAwake = memoryUnlocks.includes('hearth_memory');
+  const warmMealMarkKnown = knownMarks.includes('warm_meal');
   const activeChapterStep: ChapterStep =
     storyChoice
       ? 'complete'
@@ -1067,9 +1087,7 @@ export default function Home() {
             : 'reveal';
   const activeChapterPrompt =
     activeChapterStep === 'discover'
-      ? collectedPotPieces.length
-        ? 'Another piece is waiting near the hearth.'
-        : 'Something by the hearth wants to be found.'
+      ? guidance
       : activeChapterStep === 'restore'
         ? 'Two pieces remember the same shape.'
         : activeChapterStep === 'place'
@@ -1184,11 +1202,18 @@ export default function Home() {
       setSelectedFindId(target.id);
       setExcavationFocus('hearth');
       if (state.exposed < 70) {
+        const nextExposure = clamp(state.exposed + 38);
         updateFind(target.id, {
-          exposed: clamp(state.exposed + 38),
+          exposed: nextExposure,
           observations: [...new Set([...state.observations, target.clue])],
         });
-        setGuidance(target.id === '1' ? 'A curved edge appears in the ash.' : 'A second curve answers the first.');
+        setGuidance(
+          nextExposure >= 70
+            ? 'Ready to collect.'
+            : target.id === '1'
+              ? 'A curved edge appears in the ash.'
+              : 'A second curve answers the first.',
+        );
         playCue('brush');
         return;
       }
@@ -1198,7 +1223,7 @@ export default function Home() {
         cleaned: Math.max(state.cleaned, 50),
         observations: [...new Set([...state.observations, target.clue])],
       });
-      setGuidance(target.id === '1' ? 'One pot piece is safe in your pouch.' : 'The two pieces hum with the same shape.');
+      setGuidance(target.id === '1' ? 'One pot piece is safe. Another waits nearby.' : 'The two pieces hum with the same shape.');
       playCue('lift');
       if (target.id === '2') setChapterProgress('restore');
       return;
@@ -1228,7 +1253,8 @@ export default function Home() {
     }
     if (activeChapterStep === 'memory') {
       setMemoryUnlocks((current) => current.includes('hearth_memory') ? current : [...current, 'hearth_memory']);
-      setGuidance('A small ordinary meal returns to the room.');
+      setKnownMarks((current) => current.includes('warm_meal') ? current : [...current, 'warm_meal']);
+      setGuidance('A warm meal mark wakes on the pot.');
       setChapterProgress('decide');
       playCue('clean');
       return;
@@ -1278,10 +1304,11 @@ export default function Home() {
         chapterId,
         chapterStep: activeChapterStep,
         memoryUnlocks,
+        knownMarks,
         storyChoice,
       }),
     );
-  }, [activeChapterStep, chapterId, chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, memoryUnlocks, mode, placements, screen, selectedFindId, soundEnabled, storyChoice, tutorialStep, unlockedScreens]);
+  }, [activeChapterStep, chapterId, chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, knownMarks, memoryUnlocks, mode, placements, screen, selectedFindId, soundEnabled, storyChoice, tutorialStep, unlockedScreens]);
 
   function updateFind(id: string, patch: Partial<FindState>) {
     setFindState((current) => ({
@@ -1536,6 +1563,7 @@ export default function Home() {
         chapterId,
         chapterStep: activeChapterStep,
         memoryUnlocks,
+        knownMarks,
         storyChoice,
       }),
     );
@@ -1557,12 +1585,13 @@ export default function Home() {
     setPlacements({});
     setChosenInterpretation('B');
     setScreen('excavation');
-    setGuidance('Something is peeking through by the hearth. Brush it gently.');
+    setGuidance('Something is peeking through by the hearth. Reveal it gently.');
     setFieldworkHistoryId('threshold');
     setHasCompletedMainLoop(false);
     setChapterId('hearth_memory');
     setChapterStep('discover');
     setMemoryUnlocks([]);
+    setKnownMarks([]);
     setStoryChoice(null);
     playCue('place');
   }
@@ -1585,7 +1614,7 @@ export default function Home() {
     setPlacements({});
     setChosenInterpretation('B');
     setScreen('excavation');
-    setGuidance('Something is peeking through by the hearth. Brush it gently.');
+    setGuidance('Something is peeking through by the hearth. Reveal it gently.');
     playCue('place');
   }
 
@@ -1823,7 +1852,10 @@ export default function Home() {
           {hearthMemoryAwake ? (
             <div className="pointer-events-none absolute inset-0 z-[7] bg-[radial-gradient(circle_at_34%_57%,rgb(251_191_36/0.34)_0%,rgb(251_146_60/0.2)_18%,transparent_48%)]">
               <div className="absolute left-[24%] top-[39%] max-w-[270px] rounded-lg border border-amber-100/70 bg-black/42 px-3 py-2 text-sm text-white shadow-xl backdrop-blur-sm">
-                The pot sits close to the hearth. For a moment, the room feels lived in again.
+                <span className="flex items-center gap-3">
+                  <WarmMealMark className="size-9 shrink-0 text-amber-100" />
+                  <span>The pot sits close to the hearth. A warm meal mark glows awake.</span>
+                </span>
               </div>
             </div>
           ) : null}
@@ -1832,11 +1864,22 @@ export default function Home() {
             <div className="absolute inset-x-4 bottom-28 z-20 mx-auto max-w-xl rounded-lg border border-amber-100/75 bg-stone-950/72 p-4 text-white shadow-2xl backdrop-blur-md sm:bottom-32">
               <p className="text-sm font-semibold text-amber-100">Restore the pot</p>
               <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                <div className="rounded-lg border border-white/20 bg-white/10 p-4 text-center">Rim piece</div>
-                <Sparkles className="size-6 text-amber-200" aria-hidden="true" />
-                <div className="rounded-lg border border-white/20 bg-white/10 p-4 text-center">Body piece</div>
+                <div className="relative min-h-28 overflow-hidden rounded-lg border border-white/20 bg-gradient-to-br from-orange-200/20 to-stone-700/40 p-4 text-center transition hover:border-amber-100/70">
+                  <div className="absolute -right-8 top-5 size-28 rounded-full border-[18px] border-orange-100/35" />
+                  <WarmMealMark className="mx-auto text-amber-100" />
+                  <span className="mt-2 block text-sm font-semibold">Rim piece</span>
+                </div>
+                <div className="flex flex-col items-center gap-1 text-amber-100">
+                  <Sparkles className="size-6" aria-hidden="true" />
+                  <span className="h-12 w-1 rounded-full bg-amber-100/70 shadow-[0_0_22px_rgb(254_243_199/0.75)]" />
+                </div>
+                <div className="relative min-h-28 overflow-hidden rounded-lg border border-white/20 bg-gradient-to-bl from-orange-200/20 to-stone-700/40 p-4 text-center transition hover:border-amber-100/70">
+                  <div className="absolute -left-8 top-5 size-28 rounded-full border-[18px] border-orange-100/35" />
+                  <WarmMealMark className="mx-auto text-amber-100" />
+                  <span className="mt-2 block text-sm font-semibold">Body piece</span>
+                </div>
               </div>
-              <p className="mt-3 text-sm text-stone-200">The dark line continues from one piece to the next.</p>
+              <p className="mt-3 text-sm text-stone-200">The same little mark appears on both pieces.</p>
             </div>
           ) : null}
 
@@ -1885,6 +1928,12 @@ export default function Home() {
                 );
               })}
               {potRestored ? <Badge className="shrink-0 bg-emerald-500 text-white">Pot restored</Badge> : null}
+              {warmMealMarkKnown ? (
+                <Badge className="shrink-0 gap-1 bg-amber-200 text-stone-950">
+                  <WarmMealMark className="size-4 border text-stone-950" />
+                  Mark learned
+                </Badge>
+              ) : null}
               {hearthMemoryAwake ? <Badge className="shrink-0 bg-orange-500 text-white">Memory awake</Badge> : null}
             </div>
             <div className="flex items-center gap-2">
@@ -1894,12 +1943,26 @@ export default function Home() {
                   Notebook
                 </summary>
                 <div className="absolute bottom-14 right-0 w-[min(360px,calc(100vw-24px))] rounded-lg border border-amber-100/70 bg-stone-950 p-4 text-sm shadow-2xl">
-                  <p className="font-semibold text-amber-100">Unlocked notes</p>
+                  <p className="font-semibold text-amber-100">Room notes</p>
                   <ul className="mt-3 space-y-2 text-stone-200">
                     <li>The soot line runs across both pot pieces.</li>
                     {potRestored ? <li>The two fragments fit as one cooking pot.</li> : null}
                     {hearthMemoryAwake ? <li>This first memory points to everyday use before the room changed.</li> : null}
                   </ul>
+                  <div className="mt-4 border-t border-white/15 pt-4">
+                    <p className="font-semibold text-amber-100">Marks I know</p>
+                    {warmMealMarkKnown ? (
+                      <div className="mt-3 flex items-center gap-3 rounded-md border border-amber-100/30 bg-white/10 p-3 text-stone-100">
+                        <WarmMealMark className="size-9 shrink-0 text-amber-100" />
+                        <div>
+                          <p className="font-semibold">Warm meal</p>
+                          <p className="text-xs text-stone-300">Found on a pot kept by the hearth.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-stone-300">No marks learned yet.</p>
+                    )}
+                  </div>
                 </div>
               </details>
               <Button className="h-11 min-w-36 bg-amber-300 text-stone-950 hover:bg-amber-200" onClick={playChapterAction}>
