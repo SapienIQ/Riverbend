@@ -51,13 +51,14 @@ type Tool = 'brush' | 'pick' | 'stabilize' | 'lift' | 'light' | 'join';
 type SoundCue = 'brush' | 'pick' | 'stabilize' | 'lift' | 'join' | 'place' | 'blocked' | 'clean';
 type ExcavationFocus = 'hearth' | 'bench' | 'threshold' | 'pit' | 'collapse' | 'north';
 type TutorialStep = 'firstBrush' | 'firstLift' | 'firstLook' | 'firstMatch' | 'firstBuild' | 'freePlay';
-type ChapterId = 'hearth_memory' | 'threshold_memory';
+type ChapterId = 'hearth_memory' | 'threshold_memory' | 'bench_memory';
 type ChapterStep = 'discover' | 'restore' | 'place' | 'memory' | 'decide' | 'complete';
 type GameVerb = 'reveal' | 'collect' | 'restore' | 'place' | 'decide';
-type MemoryUnlock = 'hearth_memory' | 'threshold_memory';
-type KnownMark = 'warm_meal' | 'kept_close';
-type StoryChoice = 'daily' | 'sudden' | 'mixed';
+type MemoryUnlock = 'hearth_memory' | 'threshold_memory' | 'bench_memory';
+type KnownMark = 'warm_meal' | 'kept_close' | 'work_rhythm';
+type StoryChoice = 'daily' | 'sudden' | 'mixed' | 'supplies' | 'making';
 type ThresholdChoice = 'kept' | 'dropped' | 'shifted';
+type BenchChoice = 'steady' | 'special' | 'unfinished';
 type Confidence =
   | 'Confirmed'
   | 'Strongly supported'
@@ -128,7 +129,9 @@ type FragmentTransform = {
 
 type RestoreFragmentId = 'rim' | 'body';
 type RestorePuzzleState = Record<RestoreFragmentId, FragmentTransform>;
-type PlacePuzzleId = 'hearth' | 'threshold';
+type PatternPieceId = 'spindleA' | 'spindleB' | 'pigment';
+type PatternPuzzleState = Record<PatternPieceId, FragmentTransform>;
+type PlacePuzzleId = 'hearth' | 'threshold' | 'bench';
 type PlacePuzzleState = Record<PlacePuzzleId, FragmentTransform>;
 
 const initialRestorePuzzle: RestorePuzzleState = {
@@ -137,19 +140,220 @@ const initialRestorePuzzle: RestorePuzzleState = {
 };
 
 const restoreTargets: RestorePuzzleState = {
-  rim: { x: 43, y: 50, rotation: 0 },
-  body: { x: 57, y: 50, rotation: 0 },
+  rim: { x: 35, y: 50, rotation: 0 },
+  body: { x: 65, y: 50, rotation: 0 },
 };
 
 const initialPlacePuzzle: PlacePuzzleState = {
   hearth: { x: 78, y: 72, rotation: 0 },
   threshold: { x: 28, y: 74, rotation: 0 },
+  bench: { x: 76, y: 72, rotation: 0 },
 };
 
 const placeTargets: PlacePuzzleState = {
-  hearth: { x: 36, y: 57, rotation: 0 },
-  threshold: { x: 50, y: 77, rotation: 0 },
+  hearth: { x: 36, y: 42, rotation: 0 },
+  threshold: { x: 50, y: 87, rotation: 0 },
+  bench: { x: 66, y: 19, rotation: 0 },
 };
+
+const initialPatternPuzzle: PatternPuzzleState = {
+  spindleA: { x: 25, y: 58, rotation: -12 },
+  spindleB: { x: 75, y: 58, rotation: 16 },
+  pigment: { x: 50, y: 28, rotation: 0 },
+};
+
+const patternTargets: PatternPuzzleState = {
+  spindleA: { x: 38, y: 58, rotation: 0 },
+  spindleB: { x: 62, y: 58, rotation: 0 },
+  pigment: { x: 50, y: 38, rotation: 0 },
+};
+
+const chapterTheme: Record<ChapterId, { title: string; shortName: string; glow: string; mark: string }> = {
+  hearth_memory: {
+    title: 'Riverbend Workshop',
+    shortName: 'Hearth',
+    glow: 'amber',
+    mark: 'Warm meal',
+  },
+  threshold_memory: {
+    title: 'Riverbend Workshop',
+    shortName: 'Doorway',
+    glow: 'sky',
+    mark: 'Kept close',
+  },
+  bench_memory: {
+    title: 'Riverbend Workshop',
+    shortName: 'Bench',
+    glow: 'teal',
+    mark: 'Work rhythm',
+  },
+};
+
+const chapterCopy = {
+  hearth_memory: {
+    discover: {
+      prompt: 'A pot edge is showing by the hearth. Reveal it.',
+      ready: 'A curved pot piece. Collect it.',
+      revealFirst: 'A curved edge appears in the ash.',
+      revealSecond: 'A second curve answers the first.',
+      collectFirst: 'One piece found. Reveal the other beside it.',
+      collectSecond: 'Two pieces of the same pot. Bring them together.',
+    },
+    restore: {
+      far: 'Bring the edges together.',
+      near: 'Almost fits.',
+      ready: 'Ready to join.',
+      helper: 'Move and turn the pieces to fit the pot outline.',
+      nearHelper: 'Follow the curve of the pot.',
+      readyHelper: 'A dark line runs across both pieces.',
+      action: 'Join pieces',
+      readyAction: 'Join pieces',
+      success: 'The soot line continues across the repaired pot.',
+    },
+    place: {
+      far: 'Carry the pot to the hearth.',
+      near: 'Almost home.',
+      ready: 'Ready. Set the pot by the fire.',
+      success: 'The hearth warms around the restored pot.',
+      action: 'Place by hearth',
+    },
+    memory: {
+      prompt: 'Picture this hearth when it was in use.',
+      action: 'Imagine the room',
+      success: 'A repaired pot and a well-used hearth suggest everyday meals.',
+      echo: 'A repaired pot. A well-used hearth. Meals made here again and again.',
+    },
+    decide: {
+      prompt: 'What happened around this hearth?',
+      question: 'What happened around this hearth?',
+      action: 'Choose a meaning',
+      complete: 'This room changed. Follow the doorway.',
+      nextAction: 'Follow the doorway',
+    },
+  },
+  threshold_memory: {
+    discover: {
+      prompt: 'A tiny blue bead waits near the doorway.',
+      ready: 'Ready to collect.',
+      revealFirst: 'A small blue gleam catches the light.',
+      revealSecond: 'A small blue gleam catches the light.',
+      collectFirst: 'The bead feels kept, not thrown away.',
+      collectSecond: 'The bead feels kept, not thrown away.',
+    },
+    restore: {
+      far: '',
+      near: '',
+      ready: '',
+      helper: '',
+      nearHelper: '',
+      readyHelper: '',
+      action: '',
+      readyAction: '',
+      success: '',
+    },
+    place: {
+      far: 'Carry the bead to the doorway.',
+      near: 'Almost home.',
+      ready: 'The bead knows the doorway.',
+      success: 'The doorway holds it.',
+      action: 'Place by doorway',
+    },
+    memory: {
+      prompt: 'Picture the doorway when it was in use.',
+      action: 'Imagine the doorway',
+      success: 'A kept-close mark wakes beside the door.',
+      echo: 'A bead beneath the threshold. Kept there, or lost during a repair?',
+    },
+    decide: {
+      prompt: 'Why was the bead tucked here?',
+      question: 'Why was the bead tucked by the doorway?',
+      action: 'Choose a meaning',
+      complete: 'The doorway memory is awake.',
+      nextAction: 'Follow the bench',
+    },
+  },
+  bench_memory: {
+    discover: {
+      prompt: 'Something near the bench kept a rhythm.',
+      ready: 'Ready to collect.',
+      revealFirst: 'A little weight waits by the bench.',
+      revealSecond: 'Another weight answers nearby.',
+      collectFirst: 'One small weight joins the pattern.',
+      collectSecond: 'The bench is holding one more color clue.',
+    },
+    restore: {
+      far: 'Make the pattern.',
+      near: 'Almost a rhythm.',
+      ready: 'The pattern holds.',
+      helper: 'Move the small pieces into a quiet rhythm.',
+      nearHelper: 'The pieces are starting to answer each other.',
+      readyHelper: 'A touch of blue between the weights.',
+      action: 'Bind pattern',
+      readyAction: 'Bind pattern',
+      success: 'The pattern keeps its beat.',
+    },
+    place: {
+      far: 'Carry the pattern to the bench.',
+      near: 'Almost home.',
+      ready: 'The bench knows the pattern.',
+      success: 'The bench warms with quiet work.',
+      action: 'Place by bench',
+    },
+    memory: {
+      prompt: 'Picture a day at the bench.',
+      action: 'Imagine the workshop',
+      success: 'A work rhythm mark wakes by the bench.',
+      echo: 'Weights, thread, and a touch of blue. Work repeated here.',
+    },
+    decide: {
+      prompt: 'What did the bench remember?',
+      question: 'What did the bench remember?',
+      action: 'Choose a meaning',
+      complete: 'The bench memory is awake.',
+      nextAction: "See the room's story",
+    },
+  },
+} satisfies Record<ChapterId, {
+  discover: {
+    prompt: string;
+    ready: string;
+    revealFirst: string;
+    revealSecond: string;
+    collectFirst: string;
+    collectSecond: string;
+  };
+  restore: {
+    far: string;
+    near: string;
+    ready: string;
+    helper: string;
+    nearHelper: string;
+    readyHelper: string;
+    action: string;
+    readyAction: string;
+    success: string;
+  };
+  place: {
+    far: string;
+    near: string;
+    ready: string;
+    success: string;
+    action: string;
+  };
+  memory: {
+    prompt: string;
+    action: string;
+    success: string;
+    echo: string;
+  };
+  decide: {
+    prompt: string;
+    question: string;
+    action: string;
+    complete: string;
+    nextAction: string;
+  };
+}>;
 
 const tools: {
   id: Tool;
@@ -756,6 +960,13 @@ function restoreFitScore(puzzle: RestorePuzzleState) {
   return rimDistance + bodyDistance + rimRotation / 5 + bodyRotation / 5;
 }
 
+function patternFitScore(puzzle: PatternPuzzleState) {
+  return (Object.keys(patternTargets) as PatternPieceId[]).reduce(
+    (score, id) => score + fragmentDistance(puzzle[id], patternTargets[id]) + rotationDistance(puzzle[id].rotation, patternTargets[id].rotation) / 7,
+    0,
+  );
+}
+
 function moveToward(current: FragmentTransform, target: FragmentTransform, amount: number): FragmentTransform {
   return {
     x: current.x + (target.x - current.x) * amount,
@@ -887,13 +1098,10 @@ function WarmMealMark({ className = '' }: { className?: string }) {
   return (
     <span
       aria-label="warm meal mark"
-      className={`relative inline-flex size-10 items-center justify-center rounded-full border-2 border-current ${className}`}
+      className={`relative inline-flex size-10 items-center justify-center ${className}`}
     >
-      <span className="absolute top-1 h-2.5 w-0.5 rounded-full bg-current" />
-      <span className="absolute bottom-1 h-2.5 w-0.5 rounded-full bg-current" />
-      <span className="absolute h-0.5 w-6 rounded-full bg-current" />
-      <span className="absolute h-6 w-0.5 rounded-full bg-current" />
-      <span className="absolute size-2.5 rounded-full bg-current" />
+      <span className="absolute bottom-[25%] h-[50%] w-[80%] rounded-[50%] border-b-2 border-current" />
+      <span className="absolute bottom-[40%] h-[40%] w-[65%] rounded-[50%] border-b-2 border-current" />
     </span>
   );
 }
@@ -912,6 +1120,21 @@ function KeptCloseMark({ className = '' }: { className?: string }) {
   );
 }
 
+function WorkRhythmMark({ className = '' }: { className?: string }) {
+  return (
+    <span
+      aria-label="work rhythm mark"
+      className={`relative inline-flex size-10 items-center justify-center rounded-full border-2 border-current ${className}`}
+    >
+      <span className="absolute left-2 h-5 w-0.5 rounded-full bg-current" />
+      <span className="absolute right-2 h-5 w-0.5 rounded-full bg-current" />
+      <span className="absolute h-0.5 w-6 rotate-[-18deg] rounded-full bg-current" />
+      <span className="absolute h-0.5 w-6 rotate-[18deg] rounded-full bg-current" />
+      <span className="absolute size-2 rounded-full bg-current" />
+    </span>
+  );
+}
+
 export default function Home() {
   const [screen, setScreen] = useState<Screen>('excavation');
   const [mode, setMode] = useState<'expedition' | 'fieldwork'>('expedition');
@@ -921,7 +1144,7 @@ export default function Home() {
   const [findState, setFindState] = useState<Record<string, FindState>>(initialFindState);
   const [placements, setPlacements] = useState<Record<string, string>>({});
   const [chosenInterpretation, setChosenInterpretation] = useState<'A' | 'B' | 'C'>('B');
-  const [guidance, setGuidance] = useState('Something is peeking through by the hearth. Reveal it gently.');
+  const [guidance, setGuidance] = useState(chapterCopy.hearth_memory.discover.prompt);
   const [saved, setSaved] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -933,13 +1156,28 @@ export default function Home() {
   const [knownMarks, setKnownMarks] = useState<KnownMark[]>([]);
   const [storyChoice, setStoryChoice] = useState<StoryChoice | null>(null);
   const [thresholdChoice, setThresholdChoice] = useState<ThresholdChoice | null>(null);
+  const [benchChoice, setBenchChoice] = useState<BenchChoice | null>(null);
+  const [roomStoryOpen, setRoomStoryOpen] = useState(false);
+  const [showPresentRoom, setShowPresentRoom] = useState(false);
   const [restorePuzzle, setRestorePuzzle] = useState<RestorePuzzleState>(initialRestorePuzzle);
   const [draggingFragment, setDraggingFragment] = useState<RestoreFragmentId | null>(null);
+  const [patternPuzzle, setPatternPuzzle] = useState<PatternPuzzleState>(initialPatternPuzzle);
+  const [draggingPattern, setDraggingPattern] = useState<PatternPieceId | null>(null);
+  const [patternBound, setPatternBound] = useState(false);
   const [placePuzzle, setPlacePuzzle] = useState<PlacePuzzleState>(initialPlacePuzzle);
   const [draggingPlace, setDraggingPlace] = useState<PlacePuzzleId | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const restoreBoardRef = useRef<HTMLDivElement | null>(null);
-  const sceneRef = useRef<HTMLElement | null>(null);
+  const patternBoardRef = useRef<HTMLDivElement | null>(null);
+  const sceneRef = useRef<HTMLDivElement | null>(null);
+  const roomStoryRef = useRef<HTMLElement | null>(null);
+  const chapterActionRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (roomStoryOpen) roomStoryRef.current?.focus();
+  }, [roomStoryOpen]);
+  const [hearthReconstructionAcknowledged, setHearthReconstructionAcknowledged] = useState(false);
+  const [hearthEchoPlaying, setHearthEchoPlaying] = useState(false);
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
@@ -970,8 +1208,13 @@ export default function Home() {
           knownMarks?: KnownMark[];
           storyChoice?: StoryChoice | null;
           thresholdChoice?: ThresholdChoice | null;
+          benchChoice?: BenchChoice | null;
+          roomStoryOpen?: boolean;
           restorePuzzle?: RestorePuzzleState;
+          patternPuzzle?: PatternPuzzleState;
+          patternBound?: boolean;
           placePuzzle?: PlacePuzzleState;
+          hearthReconstructionAcknowledged?: boolean;
         };
         const restoredFindState = parsed.findState ?? initialFindState;
         const restoredPlacements = parsed.placements ?? {};
@@ -985,7 +1228,7 @@ export default function Home() {
         setFindState(restoredFindState);
         setPlacements(restoredPlacements);
         setChosenInterpretation(parsed.chosenInterpretation ?? 'B');
-        setGuidance(parsed.guidance ?? 'Something is peeking through by the hearth. Reveal it gently.');
+        setGuidance(parsed.guidance ?? chapterCopy.hearth_memory.discover.prompt);
         setSoundEnabled(parsed.soundEnabled ?? true);
         setFieldworkHistoryId(parsed.fieldworkHistoryId ?? 'threshold');
         setHasCompletedMainLoop(restoredComplete);
@@ -995,8 +1238,13 @@ export default function Home() {
         setKnownMarks(parsed.knownMarks ?? []);
         setStoryChoice(parsed.storyChoice ?? null);
         setThresholdChoice(parsed.thresholdChoice ?? null);
+        setBenchChoice(parsed.benchChoice ?? null);
+        setRoomStoryOpen(Boolean(parsed.roomStoryOpen && parsed.benchChoice && parsed.chapterId === 'bench_memory'));
         setRestorePuzzle(parsed.restorePuzzle ?? initialRestorePuzzle);
+        setPatternPuzzle(parsed.patternPuzzle ?? initialPatternPuzzle);
+        setPatternBound(parsed.patternBound ?? false);
         setPlacePuzzle(parsed.placePuzzle ?? initialPlacePuzzle);
+        setHearthReconstructionAcknowledged(parsed.hearthReconstructionAcknowledged ?? Boolean(parsed.memoryUnlocks?.includes('hearth_memory')));
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
       } finally {
@@ -1142,42 +1390,66 @@ export default function Home() {
     : 'This patch is clear. No tool needed here right now.';
   const hearthFinds = [finds.find((find) => find.id === '1')!, finds.find((find) => find.id === '2')!];
   const beadFind = finds.find((find) => find.id === '20')!;
+  const benchFinds = [finds.find((find) => find.id === '9')!, finds.find((find) => find.id === '10')!, finds.find((find) => find.id === '15')!];
   const firstPotState = findState['1'];
-  const secondPotState = findState['2'];
   const beadState = findState['20'];
+  const collectedBenchFinds = benchFinds.filter((find) => findState[find.id]?.recovered);
   const collectedPotPieces = hearthFinds.filter((find) => findState[find.id]?.recovered);
-  const activeChapterFinds = chapterId === 'hearth_memory' ? hearthFinds : [beadFind];
+  const activeChapterFinds = chapterId === 'hearth_memory' ? hearthFinds : chapterId === 'bench_memory' ? benchFinds : [beadFind];
   const potRestored = hasConfirmedJoin(findState, ['1', '2']);
   const hearthPlaced = Boolean(placements.hearth);
   const beadCollected = beadState.recovered;
   const thresholdPlaced = Boolean(placements.threshold);
+  const benchPlaced = Boolean(placements.bench);
   const hearthMemoryAwake = memoryUnlocks.includes('hearth_memory');
   const thresholdMemoryAwake = memoryUnlocks.includes('threshold_memory');
+  const benchMemoryAwake = memoryUnlocks.includes('bench_memory');
   const warmMealMarkKnown = knownMarks.includes('warm_meal');
   const keptCloseMarkKnown = knownMarks.includes('kept_close');
+  const workRhythmMarkKnown = knownMarks.includes('work_rhythm');
+  const activeCopy = chapterCopy[chapterId];
+  const activeTheme = chapterTheme[chapterId];
   const restoreScore = restoreFitScore(restorePuzzle);
   const restoreReady = restoreScore <= 8;
   const restoreNear = restoreReady || restoreScore <= 20;
+  const patternScore = patternFitScore(patternPuzzle);
+  const patternReady = patternScore <= 10;
+  const patternNear = patternReady || patternScore <= 26;
   const restorePrompt = restoreReady
-    ? 'The pieces remember each other.'
+    ? activeCopy.restore.ready
     : restoreNear
-      ? 'Almost there.'
-      : 'Move the pieces together.';
-  const activePlaceId: PlacePuzzleId = chapterId === 'threshold_memory' ? 'threshold' : 'hearth';
+      ? activeCopy.restore.near
+      : activeCopy.restore.far;
+  const patternPrompt = patternReady
+    ? activeCopy.restore.ready
+    : patternNear
+      ? activeCopy.restore.near
+      : activeCopy.restore.far;
+  const activeRestorePrompt = chapterId === 'bench_memory' ? patternPrompt : restorePrompt;
+  const activeRestoreReady = chapterId === 'bench_memory' ? patternReady : restoreReady;
+  const activePlaceId: PlacePuzzleId = chapterId === 'threshold_memory' ? 'threshold' : chapterId === 'bench_memory' ? 'bench' : 'hearth';
   const placeScore = fragmentDistance(placePuzzle[activePlaceId], placeTargets[activePlaceId]);
   const placeReady = placeScore <= 9;
   const placeNear = placeReady || placeScore <= 20;
   const placePrompt = placeReady
-    ? chapterId === 'threshold_memory'
-      ? 'The bead knows the doorway.'
-      : 'The pot knows the hearth.'
+    ? activeCopy.place.ready
     : placeNear
-      ? 'Almost in place.'
-      : chapterId === 'threshold_memory'
-        ? 'Carry the bead to the doorway.'
-        : 'Carry the pot to the hearth.';
+      ? activeCopy.place.near
+      : activeCopy.place.far;
   const activeChapterStep: ChapterStep =
-    chapterId === 'threshold_memory'
+    chapterId === 'bench_memory'
+      ? benchChoice
+        ? 'complete'
+        : benchMemoryAwake
+          ? 'decide'
+          : benchPlaced
+            ? 'memory'
+            : patternBound
+              ? 'place'
+              : collectedBenchFinds.length >= benchFinds.length
+                ? 'restore'
+                : 'discover'
+      : chapterId === 'threshold_memory'
       ? thresholdChoice
         ? 'complete'
         : thresholdMemoryAwake
@@ -1198,6 +1470,10 @@ export default function Home() {
               : collectedPotPieces.length >= 2
                 ? 'restore'
                 : 'discover';
+  const nextDiscoverFind = firstPotState.recovered ? hearthFinds[1] : hearthFinds[0];
+  const nextBenchFind = benchFinds.find((find) => !findState[find.id]?.recovered) ?? benchFinds[benchFinds.length - 1];
+  const activeDiscoverFind = chapterId === 'threshold_memory' ? beadFind : chapterId === 'bench_memory' ? nextBenchFind : nextDiscoverFind;
+  const nextDiscoverState = findState[activeDiscoverFind.id];
   const activeGameVerb: GameVerb =
     activeChapterStep === 'restore'
       ? 'restore'
@@ -1205,59 +1481,41 @@ export default function Home() {
         ? 'place'
         : activeChapterStep === 'decide' || activeChapterStep === 'complete'
           ? 'decide'
-          : (chapterId === 'threshold_memory' ? beadState : firstPotState.recovered ? secondPotState : firstPotState).exposed >= 70
+          : nextDiscoverState.exposed >= 70
             ? 'collect'
             : 'reveal';
   const activeChapterPrompt =
-    chapterId === 'threshold_memory' && activeChapterStep === 'discover'
-      ? guidance
-      : chapterId === 'threshold_memory' && activeChapterStep === 'place'
-        ? 'The bead belongs by the doorway.'
-      : chapterId === 'threshold_memory' && activeChapterStep === 'memory'
-        ? 'The doorway is ready to remember.'
-      : chapterId === 'threshold_memory' && activeChapterStep === 'decide'
-        ? 'Why was the bead tucked here?'
-      : chapterId === 'threshold_memory' && activeChapterStep === 'complete'
-        ? 'The doorway memory is awake.'
-      : activeChapterStep === 'discover'
+    activeChapterStep === 'discover'
       ? guidance
       : activeChapterStep === 'restore'
-        ? restorePrompt
+        ? activeRestorePrompt
         : activeChapterStep === 'place'
           ? placePrompt
           : activeChapterStep === 'memory'
-            ? 'The room is ready to remember.'
+            ? activeCopy.memory.prompt
             : activeChapterStep === 'decide'
-              ? 'What did this first memory show you?'
-              : 'The hearth memory is awake.';
+              ? activeCopy.decide.prompt
+              : activeCopy.decide.complete;
   const primaryGameAction =
     activeChapterStep === 'complete' && chapterId === 'hearth_memory'
-      ? 'Follow the doorway'
+      ? activeCopy.decide.nextAction
       : activeChapterStep === 'complete'
-      ? 'Play again'
+      ? activeCopy.decide.nextAction
       : activeGameVerb === 'reveal'
       ? 'Reveal'
       : activeGameVerb === 'collect'
         ? 'Collect'
         : activeGameVerb === 'restore'
-          ? restoreReady
-            ? 'Join pieces'
-            : 'Restore pot'
+          ? activeRestoreReady
+            ? activeCopy.restore.readyAction
+            : activeCopy.restore.action
           : activeChapterStep === 'memory'
-            ? chapterId === 'threshold_memory'
-              ? 'Wake the doorway'
-              : 'Wake the room'
+            ? activeCopy.memory.action
             : activeGameVerb === 'place'
               ? placeReady
                 ? 'Set it down'
-                : chapterId === 'threshold_memory'
-                  ? 'Place by doorway'
-                  : 'Place by hearth'
-              : 'Choose a meaning';
-  const nextDiscoverFind = firstPotState.recovered ? hearthFinds[1] : hearthFinds[0];
-  const activeDiscoverFind = chapterId === 'threshold_memory' ? beadFind : nextDiscoverFind;
-  const nextDiscoverState = findState[activeDiscoverFind.id];
-
+                : activeCopy.place.action
+              : activeCopy.decide.action;
   function _followNextAction() {
     if (tutorialStep === 'firstBrush') {
       if (screen === 'excavation') {
@@ -1344,21 +1602,25 @@ export default function Home() {
       const target = activeDiscoverFind;
       const state = nextDiscoverState;
       setSelectedFindId(target.id);
-      setExcavationFocus(chapterId === 'threshold_memory' ? 'threshold' : 'hearth');
+      setExcavationFocus(chapterId === 'threshold_memory' ? 'threshold' : chapterId === 'bench_memory' ? 'bench' : 'hearth');
       if (state.exposed < 70) {
-        const nextExposure = clamp(state.exposed + 38);
+        const nextExposure = chapterId === 'hearth_memory' ? 100 : clamp(state.exposed + 38);
         updateFind(target.id, {
           exposed: nextExposure,
           observations: [...new Set([...state.observations, target.clue])],
         });
         setGuidance(
           nextExposure >= 70
-            ? 'Ready to collect.'
+            ? activeCopy.discover.ready
             : chapterId === 'threshold_memory'
-              ? 'A tiny blue gleam catches the light.'
+              ? activeCopy.discover.revealFirst
+            : chapterId === 'bench_memory'
+              ? target.id === '9'
+                ? activeCopy.discover.revealFirst
+                : activeCopy.discover.revealSecond
             : target.id === '1'
-              ? 'A curved edge appears in the ash.'
-              : 'A second curve answers the first.',
+              ? activeCopy.discover.revealFirst
+              : activeCopy.discover.revealSecond,
         );
         playCue('brush');
         return;
@@ -1371,19 +1633,42 @@ export default function Home() {
       });
       setGuidance(
         chapterId === 'threshold_memory'
-          ? 'The bead is warm from being held.'
+          ? activeCopy.discover.collectFirst
+          : chapterId === 'bench_memory'
+            ? target.id === '15'
+              ? 'A bright speck completes the rhythm.'
+              : activeCopy.discover.collectFirst
           : target.id === '1'
-            ? 'One pot piece is safe. Another waits nearby.'
-            : 'The two pieces hum with the same shape.',
+            ? activeCopy.discover.collectFirst
+            : activeCopy.discover.collectSecond,
       );
       playCue('lift');
       if (chapterId === 'threshold_memory') setChapterProgress('place');
+      else if (chapterId === 'bench_memory' && collectedBenchFinds.length + 1 >= benchFinds.length) setChapterProgress('restore');
       else if (target.id === '2') setChapterProgress('restore');
       return;
     }
     if (activeChapterStep === 'restore') {
+      if (chapterId === 'bench_memory') {
+        if (!patternReady) {
+          setGuidance(patternNear ? activeCopy.restore.near : activeCopy.restore.far);
+          playCue('blocked');
+          return;
+        }
+        ['9', '10', '15'].forEach((id) => {
+          updateFind(id, {
+            groups: [...new Set([...findState[id].groups, 'textile'])],
+            observations: [...new Set([...findState[id].observations, 'The pieces hold one work pattern.'])],
+          });
+        });
+        setPatternBound(true);
+        setGuidance(activeCopy.restore.success);
+        setChapterProgress('place');
+        playCue('join');
+        return;
+      }
       if (!restoreReady) {
-        setGuidance(restoreNear ? 'Almost there.' : 'Move the pieces together.');
+        setGuidance(restoreNear ? activeCopy.restore.near : activeCopy.restore.far);
         playCue('blocked');
         return;
       }
@@ -1397,34 +1682,44 @@ export default function Home() {
         groups: [...new Set([...findState['2'].groups, 'cooking'])],
         observations: [...new Set([...findState['2'].observations, 'The soot line carries across the join.'])],
       });
-      setGuidance('The pot remembers its curve.');
+      setGuidance(activeCopy.restore.success);
       setChapterProgress('place');
       playCue('join');
       return;
     }
     if (activeChapterStep === 'place') {
       if (!placeReady) {
-        setGuidance(placeNear ? 'Almost in place.' : chapterId === 'threshold_memory' ? 'Carry the bead to the doorway.' : 'Carry the pot to the hearth.');
+        setGuidance(placeNear ? activeCopy.place.near : activeCopy.place.far);
         playCue('blocked');
         return;
       }
       setPlacements((current) =>
-        chapterId === 'threshold_memory' ? { ...current, threshold: '20' } : { ...current, hearth: '1' },
+        chapterId === 'threshold_memory'
+          ? { ...current, threshold: '20' }
+          : chapterId === 'bench_memory'
+            ? { ...current, bench: '9' }
+            : { ...current, hearth: '1' },
       );
-      setGuidance(chapterId === 'threshold_memory' ? 'The doorway holds its breath.' : 'The hearth warms around the restored pot.');
+      setGuidance(activeCopy.place.success);
       setChapterProgress('memory');
       playCue('place');
       return;
     }
     if (activeChapterStep === 'memory') {
-      if (chapterId === 'threshold_memory') {
+      if (chapterId === 'bench_memory') {
+        setMemoryUnlocks((current) => current.includes('bench_memory') ? current : [...current, 'bench_memory']);
+        setKnownMarks((current) => current.includes('work_rhythm') ? current : [...current, 'work_rhythm']);
+        setGuidance(activeCopy.memory.success);
+      } else if (chapterId === 'threshold_memory') {
         setMemoryUnlocks((current) => current.includes('threshold_memory') ? current : [...current, 'threshold_memory']);
         setKnownMarks((current) => current.includes('kept_close') ? current : [...current, 'kept_close']);
-        setGuidance('A kept-close mark wakes beside the door.');
+        setGuidance(activeCopy.memory.success);
       } else {
         setMemoryUnlocks((current) => current.includes('hearth_memory') ? current : [...current, 'hearth_memory']);
         setKnownMarks((current) => current.includes('warm_meal') ? current : [...current, 'warm_meal']);
-        setGuidance('A warm meal mark wakes on the pot.');
+        setGuidance(activeCopy.memory.success);
+        setHearthEchoPlaying(true);
+        playHearthFire();
       }
       setChapterProgress('decide');
       playCue('clean');
@@ -1439,20 +1734,28 @@ export default function Home() {
       startThresholdChapter();
       return;
     }
-    startOver();
+    if (chapterId === 'threshold_memory' && thresholdChoice) {
+      startBenchChapter();
+      return;
+    }
+    setRoomStoryOpen((current) => !current);
+    playCue('clean');
   }
 
   function chooseStory(choice: StoryChoice) {
+    setHearthReconstructionAcknowledged(true);
     setStoryChoice(choice);
     setChosenInterpretation(choice === 'mixed' ? 'C' : choice === 'sudden' ? 'A' : 'B');
     setHasCompletedMainLoop(true);
     setChapterProgress('complete');
     setGuidance(
       choice === 'daily'
-        ? 'Yes. The first memory is ordinary work, repaired and reused.'
-        : choice === 'sudden'
-          ? 'Possible, but this first memory feels calmer than a sudden ending.'
-          : 'Possible later, but this joined pot still belongs to the hearth.',
+        ? 'Soot and repairs suggest meals made here again and again.'
+        : choice === 'supplies'
+          ? 'Pots can store supplies, but this one carries soot from cooking.'
+          : choice === 'making'
+            ? 'Making came later. This pot and hearth suggest cooking first.'
+            : 'This repaired, soot-dark pot suggests repeated cooking.',
     );
     playCue('place');
   }
@@ -1462,9 +1765,9 @@ export default function Home() {
     setChapterStep('discover');
     setSelectedFindId('20');
     setExcavationFocus('threshold');
-    setPlacePuzzle((current) => ({ ...current, threshold: initialPlacePuzzle.threshold }));
+    if (!thresholdMemoryAwake) setPlacePuzzle((current) => ({ ...current, threshold: initialPlacePuzzle.threshold }));
     setDraggingPlace(null);
-    setGuidance('A tiny blue bead waits near the doorway. Reveal it gently.');
+    setGuidance(chapterCopy.threshold_memory.discover.prompt);
     playCue('clean');
   }
 
@@ -1479,6 +1782,37 @@ export default function Home() {
         : choice === 'dropped'
           ? 'Possible, but the bead feels too carefully tucked away.'
           : 'Possible later, but the doorway still remembers care.',
+    );
+    playCue('place');
+  }
+
+  function startBenchChapter() {
+    setChapterId('bench_memory');
+    setChapterStep('discover');
+    setSelectedFindId('9');
+    setExcavationFocus('bench');
+    if (!benchMemoryAwake) {
+      setPatternPuzzle(initialPatternPuzzle);
+      setPatternBound(false);
+      setPlacePuzzle((current) => ({ ...current, bench: initialPlacePuzzle.bench }));
+    }
+    setDraggingPattern(null);
+    setDraggingPlace(null);
+    setGuidance(chapterCopy.bench_memory.discover.prompt);
+    playCue('clean');
+  }
+
+  function chooseBenchStory(choice: BenchChoice) {
+    setBenchChoice(choice);
+    setChosenInterpretation('B');
+    setHasCompletedMainLoop(true);
+    setChapterProgress('complete');
+    setGuidance(
+      choice === 'steady'
+        ? 'Yes. The bench remembers steady hands and repeated work.'
+        : choice === 'special'
+          ? 'Maybe. The color feels special, but the rhythm feels practiced.'
+          : 'Possible, though the pattern feels more kept than abandoned.',
     );
     playCue('place');
   }
@@ -1508,11 +1842,61 @@ export default function Home() {
         knownMarks,
         storyChoice,
         thresholdChoice,
+        benchChoice,
+        roomStoryOpen,
         restorePuzzle,
+        patternPuzzle,
+        patternBound,
         placePuzzle,
+        hearthReconstructionAcknowledged,
       }),
     );
-  }, [activeChapterStep, chapterId, chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, knownMarks, memoryUnlocks, mode, placePuzzle, placements, restorePuzzle, screen, selectedFindId, soundEnabled, storyChoice, thresholdChoice, tutorialStep, unlockedScreens]);
+  }, [activeChapterStep, benchChoice, chapterId, chosenInterpretation, currentTool, excavationFocus, fieldworkHistoryId, findState, guidance, hasCompletedMainLoopNow, hydrated, knownMarks, memoryUnlocks, mode, patternBound, patternPuzzle, placePuzzle, placements, restorePuzzle, roomStoryOpen, screen, selectedFindId, soundEnabled, storyChoice, thresholdChoice, tutorialStep, unlockedScreens, hearthReconstructionAcknowledged]);
+
+  useEffect(() => {
+    if (!hearthEchoPlaying) return;
+    const timer = window.setTimeout(() => setHearthEchoPlaying(false), window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 2000);
+    return () => window.clearTimeout(timer);
+  }, [hearthEchoPlaying]);
+
+  useEffect(() => {
+    function onEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return;
+      const disclosure = document.activeElement?.closest('details[open]') ?? document.querySelector('.riverbend-game details[open]');
+      if (!disclosure) return;
+      disclosure.removeAttribute('open');
+      disclosure.querySelector('summary')?.focus();
+    }
+    window.addEventListener('keydown', onEscape);
+    return () => window.removeEventListener('keydown', onEscape);
+  }, []);
+
+  function playHearthFire() {
+    if (!soundEnabled) return;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const context = audioContextRef.current ?? new AudioContextCtor();
+    audioContextRef.current = context;
+    void context.resume();
+    const buffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
+    const samples = buffer.getChannelData(0);
+    let noiseSeed = 17;
+    for (let i = 0; i < samples.length; i++) {
+      noiseSeed = (noiseSeed * 16807) % 2147483647;
+      samples[i] = (noiseSeed / 2147483647 * 2 - 1) * 0.1;
+    }
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    const filter = context.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 700;
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.12, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 2);
+    source.connect(filter).connect(gain).connect(context.destination);
+    source.start();
+    source.stop(context.currentTime + 2);
+  }
 
   function updateFind(id: string, patch: Partial<FindState>) {
     setFindState((current) => ({
@@ -1751,7 +2135,7 @@ export default function Home() {
     if (!board) return;
     const rect = board.getBoundingClientRect();
     const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 16, 84);
-    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 24, 76);
+    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 30, 52);
     setRestorePuzzle((current) => ({
       ...current,
       [id]: { ...current[id], x, y },
@@ -1796,6 +2180,46 @@ export default function Home() {
     playCue('clean');
   }
 
+  function setPatternPiecePosition(id: PatternPieceId, event: ReactPointerEvent<HTMLElement>) {
+    const board = patternBoardRef.current;
+    if (!board) return;
+    const rect = board.getBoundingClientRect();
+    const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 16, 84);
+    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 20, 80);
+    setPatternPuzzle((current) => ({
+      ...current,
+      [id]: { ...current[id], x, y },
+    }));
+  }
+
+  function handlePatternPointerDown(id: PatternPieceId, event: ReactPointerEvent<HTMLButtonElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDraggingPattern(id);
+    setPatternPiecePosition(id, event);
+  }
+
+  function handlePatternPointerMove(id: PatternPieceId, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (draggingPattern !== id) return;
+    setPatternPiecePosition(id, event);
+  }
+
+  function handlePatternPointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setDraggingPattern(null);
+  }
+
+  function nudgePatternPuzzle() {
+    setPatternPuzzle((current) => ({
+      spindleA: moveToward(current.spindleA, patternTargets.spindleA, 0.6),
+      spindleB: moveToward(current.spindleB, patternTargets.spindleB, 0.6),
+      pigment: moveToward(current.pigment, patternTargets.pigment, 0.6),
+    }));
+    setGuidance(patternNear ? activeCopy.restore.near : activeCopy.restore.far);
+    playCue('clean');
+  }
+
   function setPlaceTokenPosition(id: PlacePuzzleId, event: ReactPointerEvent<HTMLElement>) {
     const scene = sceneRef.current;
     if (!scene) return;
@@ -1831,7 +2255,7 @@ export default function Home() {
       ...current,
       [activePlaceId]: moveToward(current[activePlaceId], placeTargets[activePlaceId], 0.65),
     }));
-    setGuidance(placeNear ? 'Almost in place.' : placePrompt);
+    setGuidance(placeNear ? activeCopy.place.near : placePrompt);
     playCue('clean');
   }
 
@@ -1859,8 +2283,13 @@ export default function Home() {
         knownMarks,
         storyChoice,
         thresholdChoice,
+        benchChoice,
+        roomStoryOpen,
         restorePuzzle,
+        patternPuzzle,
+        patternBound,
         placePuzzle,
+        hearthReconstructionAcknowledged,
       }),
     );
     setSaved(true);
@@ -1869,6 +2298,15 @@ export default function Home() {
 
   function closeContainingMenu(element: HTMLElement) {
     element.closest('details')?.removeAttribute('open');
+  }
+
+  function revisitMemory(chapter: ChapterId, element: HTMLElement) {
+    setRoomStoryOpen(false);
+    setShowPresentRoom(false);
+    setChapterId(chapter);
+    setGuidance(chapterCopy[chapter].decide.complete);
+    closeContainingMenu(element);
+    window.requestAnimationFrame(() => chapterActionRef.current?.focus());
   }
 
   function startOver() {
@@ -1881,7 +2319,7 @@ export default function Home() {
     setPlacements({});
     setChosenInterpretation('B');
     setScreen('excavation');
-    setGuidance('Something is peeking through by the hearth. Reveal it gently.');
+    setGuidance(chapterCopy.hearth_memory.discover.prompt);
     setFieldworkHistoryId('threshold');
     setHasCompletedMainLoop(false);
     setChapterId('hearth_memory');
@@ -1889,9 +2327,17 @@ export default function Home() {
     setMemoryUnlocks([]);
     setKnownMarks([]);
     setStoryChoice(null);
+    setHearthReconstructionAcknowledged(false);
+    setHearthEchoPlaying(false);
     setThresholdChoice(null);
+    setBenchChoice(null);
+    setRoomStoryOpen(false);
+    setShowPresentRoom(false);
     setRestorePuzzle(initialRestorePuzzle);
     setDraggingFragment(null);
+    setPatternPuzzle(initialPatternPuzzle);
+    setDraggingPattern(null);
+    setPatternBound(false);
     setPlacePuzzle(initialPlacePuzzle);
     setDraggingPlace(null);
     playCue('place');
@@ -1915,7 +2361,7 @@ export default function Home() {
     setPlacements({});
     setChosenInterpretation('B');
     setScreen('excavation');
-    setGuidance('Something is peeking through by the hearth. Reveal it gently.');
+    setGuidance(chapterCopy.hearth_memory.discover.prompt);
     playCue('place');
   }
 
@@ -2056,23 +2502,23 @@ export default function Home() {
   ]);
 
   return (
-    <main className="fixed inset-0 overflow-hidden bg-[radial-gradient(circle_at_50%_15%,#f4e3c0_0%,#d7b983_36%,#6f5136_100%)] text-stone-950">
+    <main className="riverbend-game fixed inset-0 overflow-hidden text-stone-950">
       <div className="relative flex h-full flex-col">
         <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 p-3 sm:p-5">
-          <div className="pointer-events-auto max-w-[min(620px,calc(100vw-96px))] rounded-lg border border-amber-100/70 bg-black/42 px-3 py-2 text-white shadow-xl backdrop-blur-sm">
-            <div className="flex items-center gap-2">
-              <Compass className="size-4 text-amber-100" aria-hidden="true" />
-              <p className="text-xs font-semibold uppercase tracking-wide text-amber-100">Riverbend Workshop</p>
+          <div className="riverbend-prompt pointer-events-auto max-w-[min(620px,calc(100vw-88px))] px-3 py-2 text-white sm:px-4">
+            <div className="flex items-center gap-2 text-amber-100/90">
+              <Compass className="size-4" aria-hidden="true" />
+              <p className="riverbend-title">{chapterId === 'hearth_memory' && activeChapterStep === 'discover' && collectedPotPieces.length === 0 ? 'Who made a home here?' : activeTheme.title}</p>
             </div>
-            <p className="mt-1 text-sm font-medium sm:text-base">{activeChapterPrompt}</p>
+            <p className="riverbend-scene-prompt mt-1" aria-live="polite">{roomStoryOpen ? 'A home, a workshop, a doorway.' : hearthEchoPlaying ? activeCopy.memory.echo : activeChapterPrompt}</p>
           </div>
           <details className="group/menu pointer-events-auto relative">
-            <summary className="flex size-10 cursor-pointer list-none items-center justify-center rounded-full border border-amber-100/70 bg-black/42 text-white shadow-lg backdrop-blur-sm transition hover:scale-105 hover:bg-black/55 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 [&::-webkit-details-marker]:hidden">
+            <summary aria-label="Menu" className="flex size-10 cursor-pointer list-none items-center justify-center rounded-full border border-amber-100/70 bg-black/42 text-white shadow-lg backdrop-blur-sm transition hover:scale-105 hover:bg-black/55 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 [&::-webkit-details-marker]:hidden">
               <Menu className="size-4" aria-hidden="true" />
               <span className="sr-only">Menu</span>
             </summary>
-            <div className="absolute right-0 top-12 z-50 w-56 rounded-lg border border-amber-100/70 bg-stone-950/92 p-1 text-sm text-stone-50 shadow-2xl backdrop-blur">
-              <p className="px-2 py-1 text-xs font-medium text-amber-100">Game Menu</p>
+            <div className="riverbend-surface riverbend-notebook-body absolute right-0 top-12 z-50 w-56 p-1 shadow-2xl backdrop-blur">
+              <p className="riverbend-helper px-2 py-1 text-amber-100">Menu</p>
               <button
                 type="button"
                 onClick={(event) => {
@@ -2122,74 +2568,76 @@ export default function Home() {
           </details>
         </header>
 
-        <section ref={sceneRef} className="relative min-h-0 flex-1 overflow-hidden">
+        <section className="riverbend-stage relative min-h-0 flex-1 overflow-hidden">
+          <div ref={sceneRef} className="riverbend-scene-frame">
           <Image
-            className="absolute inset-0 size-full object-cover saturate-[0.82] sepia-[0.16]"
+            className="absolute inset-0 size-full object-fill saturate-[0.85]"
             src="/assets/riverbend-workshop.png"
             alt="Illustrated top-down workshop excavation with hearth, bench, threshold, and room floor."
             fill
             priority
             sizes="100vw"
           />
+          <Image
+            className={`riverbend-memory-art absolute inset-0 size-full object-fill ${hearthMemoryAwake && chapterId === 'hearth_memory' && !showPresentRoom ? 'opacity-100' : 'opacity-0'}`}
+            src="/assets/riverbend-hearth-memory.png"
+            alt="Imagined hearth in use: a repaired cooking pot, small fire, and everyday cooking bowls."
+            fill
+            sizes="100vw"
+            aria-hidden={!hearthMemoryAwake || chapterId !== 'hearth_memory' || showPresentRoom}
+          />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_35%_56%,transparent_0%,rgb(74_47_26/0.18)_42%,rgb(30_19_12/0.42)_100%)]" />
 
-          <button
+          {activeChapterStep === 'discover' ? <button
             type="button"
             onClick={activeChapterStep === 'discover' ? playChapterAction : undefined}
             disabled={activeChapterStep !== 'discover'}
-            aria-label={chapterId === 'threshold_memory' ? 'Doorway clue' : 'Hearth clue'}
-            className={`absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-amber-100 text-sm font-bold text-white shadow-2xl transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-100 ${
+            aria-label={chapterId === 'threshold_memory' ? 'Doorway clue' : chapterId === 'bench_memory' ? 'Bench clue' : 'Hearth clue'}
+            className={`riverbend-discovery absolute z-10 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center text-sm font-bold text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-100 ${
               activeChapterStep === 'discover'
-                ? 'size-20 animate-pulse bg-amber-600/72 hover:scale-110 hover:bg-amber-500/82 active:scale-95'
+                ? 'size-20 hover:scale-110 active:scale-95'
                 : 'size-14 bg-emerald-700/72'
             }`}
             style={{
-              left: chapterId === 'threshold_memory' ? '50%' : '36%',
-              top: chapterId === 'threshold_memory' ? '77%' : '57%',
+              left: `${placeTargets[activePlaceId].x}%`,
+              top: `${placeTargets[activePlaceId].y}%`,
             }}
           >
-            {chapterId === 'threshold_memory' ? (
+            {chapterId === 'bench_memory' ? (
+              collectedBenchFinds.length >= benchFinds.length ? <CheckCircle2 className="size-7" aria-hidden="true" /> : <WorkRhythmMark className="size-8 border text-white" />
+            ) : chapterId === 'threshold_memory' ? (
               beadCollected ? <CheckCircle2 className="size-7" aria-hidden="true" /> : <KeptCloseMark className="size-8 border text-white" />
-            ) : collectedPotPieces.length >= 2 ? <CheckCircle2 className="size-7" aria-hidden="true" /> : collectedPotPieces.length + 1}
+            ) : <span key={activeDiscoverFind.id} className={`riverbend-find-piece ${nextDiscoverState.exposed >= 70 ? 'is-revealed' : ''}`} style={{ backgroundPosition: activeDiscoverFind.id === '1' ? 'left center' : 'right center' }} />}
             {activeChapterStep === 'discover' ? (
-              <span className="absolute left-1/2 top-full mt-2 min-w-32 -translate-x-1/2 rounded-md bg-black/65 px-2 py-1 text-xs font-semibold text-white shadow-lg">
+              <span className="riverbend-helper absolute left-1/2 top-full mt-2 min-w-32 -translate-x-1/2 rounded-md bg-black/65 px-2 py-1 text-white shadow-lg">
                 {primaryGameAction}
               </span>
             ) : null}
-          </button>
+          </button> : null}
 
-          {potRestored ? (
-            <div className="pointer-events-none absolute left-[36%] top-[57%] z-[6] h-[22%] w-[23%] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-orange-100/70 bg-orange-500/20 shadow-[0_0_80px_rgb(251_146_60/0.55)] backdrop-blur-[1px]">
-              <div className="absolute inset-[28%] rounded-full border-[10px] border-orange-100/55 bg-black/25" />
-            </div>
+          {hearthPlaced && !hearthMemoryAwake ? (
+            <div className="riverbend-placed-pot pointer-events-none absolute left-[36%] top-[42%] z-[6] -translate-x-1/2 -translate-y-1/2" aria-label="Restored pot placed at the hearth" />
           ) : null}
 
-          {thresholdPlaced ? (
-            <div className="pointer-events-none absolute left-[50%] top-[77%] z-[6] h-[14%] w-[18%] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-sky-100/70 bg-sky-400/16 shadow-[0_0_70px_rgb(125_211_252/0.45)] backdrop-blur-[1px]">
+          {thresholdPlaced && !thresholdMemoryAwake ? (
+            <div className="pointer-events-none absolute left-[50%] top-[87%] z-[6] h-[14%] w-[18%] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-sky-100/70 bg-sky-400/16 shadow-[0_0_70px_rgb(125_211_252/0.45)] backdrop-blur-[1px]">
               <div className="absolute inset-[34%] rounded-full border-[8px] border-sky-100/55 bg-black/20" />
             </div>
           ) : null}
 
-          {hearthMemoryAwake && chapterId === 'hearth_memory' ? (
-            <div className="pointer-events-none absolute inset-0 z-[7] bg-[radial-gradient(circle_at_34%_57%,rgb(251_191_36/0.34)_0%,rgb(251_146_60/0.2)_18%,transparent_48%)]">
-              <div className="absolute left-[24%] top-[39%] max-w-[270px] rounded-lg border border-amber-100/70 bg-black/42 px-3 py-2 text-sm text-white shadow-xl backdrop-blur-sm">
-                <span className="flex items-center gap-3">
-                  <WarmMealMark className="size-9 shrink-0 text-amber-100" />
-                  <span>The pot sits close to the hearth. A warm meal mark glows awake.</span>
-                </span>
-              </div>
+          {benchPlaced && !benchMemoryAwake ? (
+            <div className="pointer-events-none absolute left-[66%] top-[19%] z-[6] h-[16%] w-[22%] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-teal-100/70 bg-teal-400/16 shadow-[0_0_70px_rgb(94_234_212/0.42)] backdrop-blur-[1px]">
+              <div className="absolute inset-[32%] rounded-full border-[8px] border-teal-100/55 bg-black/20" />
             </div>
           ) : null}
 
-          {thresholdMemoryAwake ? (
-            <div className="pointer-events-none absolute inset-0 z-[8] bg-[radial-gradient(circle_at_50%_77%,rgb(125_211_252/0.28)_0%,rgb(14_165_233/0.17)_16%,transparent_42%)]">
-              <div className="absolute left-[41%] top-[61%] max-w-[280px] rounded-lg border border-sky-100/70 bg-black/42 px-3 py-2 text-sm text-white shadow-xl backdrop-blur-sm">
-                <span className="flex items-center gap-3">
-                  <KeptCloseMark className="size-9 shrink-0 text-sky-100" />
-                  <span>The bead rests at the doorway. A kept-close mark glimmers there.</span>
-                </span>
-              </div>
-            </div>
+
+          {thresholdMemoryAwake && chapterId === 'threshold_memory' ? (
+            <div className="pointer-events-none absolute inset-0 z-[8] bg-[radial-gradient(circle_at_50%_87%,rgb(125_211_252/0.2)_0%,transparent_42%)]" />
+          ) : null}
+
+          {benchMemoryAwake && chapterId === 'bench_memory' ? (
+            <div className="pointer-events-none absolute inset-0 z-[8] bg-[radial-gradient(circle_at_66%_19%,rgb(94_234_212/0.2)_0%,transparent_44%)]" />
           ) : null}
 
           {activeChapterStep === 'place' ? (
@@ -2207,19 +2655,18 @@ export default function Home() {
                   top: `${placeTargets[activePlaceId].y}%`,
                 }}
               />
-              <div className="absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-amber-100/65 bg-stone-950/72 px-3 py-2 text-xs font-semibold text-white shadow-xl backdrop-blur-md">
-                <span>{placePrompt}</span>
+              <div className="riverbend-helper absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-amber-100/50 bg-stone-950/58 px-3 py-2 text-white shadow-xl backdrop-blur-md">
                 <button
                   type="button"
                   onClick={nudgePlacePuzzle}
-                  className="rounded-full border border-white/20 bg-white/10 px-2 py-1 text-[11px] transition hover:bg-white/18 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
+                  className="riverbend-secondary whitespace-nowrap rounded-md px-3 py-1 transition"
                 >
                   Move closer
                 </button>
               </div>
               <button
                 type="button"
-                aria-label={chapterId === 'threshold_memory' ? 'Bead memory token. Drag to doorway.' : 'Pot memory token. Drag to hearth.'}
+                aria-label={chapterId === 'threshold_memory' ? 'Bead. Drag to doorway.' : chapterId === 'bench_memory' ? 'Pattern. Drag to bench.' : 'Pot. Drag to hearth.'}
                 onPointerDown={(event) => handlePlacePointerDown(activePlaceId, event)}
                 onPointerMove={(event) => handlePlacePointerMove(activePlaceId, event)}
                 onPointerUp={handlePlacePointerUp}
@@ -2229,7 +2676,9 @@ export default function Home() {
                     ? 'border-amber-100 bg-amber-500/80 shadow-[0_0_44px_rgb(253_230_138/0.6)]'
                     : chapterId === 'threshold_memory'
                       ? 'size-20 border-sky-100/80 bg-sky-600/76'
-                      : 'size-24 border-amber-100/80 bg-orange-700/78'
+                      : chapterId === 'bench_memory'
+                        ? 'size-20 border-teal-100/80 bg-teal-700/76'
+                      : 'riverbend-carried-pot size-24 border-transparent bg-transparent'
                 }`}
                 style={{
                   left: `${placePuzzle[activePlaceId].x}%`,
@@ -2239,22 +2688,40 @@ export default function Home() {
               >
                 {chapterId === 'threshold_memory' ? (
                   <KeptCloseMark className="size-10 text-sky-100" />
+                ) : chapterId === 'bench_memory' ? (
+                  <WorkRhythmMark className="size-12 text-teal-100" />
                 ) : (
-                  <WarmMealMark className="size-12 text-amber-100" />
+                  <span className="riverbend-pot-art size-full" />
                 )}
               </button>
             </>
           ) : null}
 
-          {activeChapterStep === 'restore' ? (
-            <div className="absolute inset-x-3 bottom-24 z-20 mx-auto max-w-2xl rounded-lg border border-amber-100/75 bg-stone-950/76 p-3 text-white shadow-2xl backdrop-blur-md sm:bottom-28 sm:p-4">
+          </div>
+
+          {hearthMemoryAwake && chapterId === 'hearth_memory' && !hearthEchoPlaying ? (
+            <fieldset className="riverbend-compare absolute right-4 top-4 z-20 flex gap-1 rounded-md bg-[#1e2823] p-1 sm:right-5 sm:top-28" aria-label="Compare the hearth">
+              <button type="button" aria-pressed={!showPresentRoom} onClick={() => setShowPresentRoom(false)} className="riverbend-helper rounded px-3">Then</button>
+              <button type="button" aria-pressed={showPresentRoom} onClick={() => setShowPresentRoom(true)} className="riverbend-helper rounded px-3">Now</button>
+              <span className="sr-only" aria-live="polite">{showPresentRoom ? 'Showing what remains today.' : 'Showing an imagined past, based on the pot and hearth.'}</span>
+            </fieldset>
+          ) : null}
+
+          {!roomStoryOpen && ((chapterId === 'threshold_memory' && thresholdMemoryAwake) || (chapterId === 'bench_memory' && benchMemoryAwake)) ? (
+            <div className="riverbend-memory-caption riverbend-surface riverbend-notebook-body pointer-events-none absolute right-4 top-4 z-10 flex w-[min(320px,calc(100%-32px))] items-center gap-3 px-3 py-2 sm:right-5 sm:top-28">
+              {chapterId === 'threshold_memory' ? <KeptCloseMark className="size-9 shrink-0 text-sky-100" /> : <WorkRhythmMark className="size-9 shrink-0 text-teal-100" />}
+              <span>{activeCopy.memory.echo}</span>
+            </div>
+          ) : null}
+
+          {activeChapterStep === 'restore' && chapterId === 'hearth_memory' ? (
+            <div className="riverbend-puzzle riverbend-surface absolute inset-x-3 bottom-5 z-20 mx-auto max-w-lg p-3 shadow-2xl backdrop-blur-md sm:bottom-12 sm:p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-amber-100">Restore the pot</p>
-                  <p className="text-xs text-stone-200">{restorePrompt}</p>
+                  <p className="riverbend-action-label text-amber-100">Fit the pot</p>
                 </div>
                 <Button
-                  className="h-9 border-amber-100/40 bg-white/10 px-3 text-xs text-white hover:bg-white/18"
+                  className="riverbend-secondary riverbend-helper h-11 px-3"
                   onClick={nudgeRestorePuzzle}
                   variant="outline"
                 >
@@ -2263,27 +2730,21 @@ export default function Home() {
               </div>
               <div
                 ref={restoreBoardRef}
-                className="relative mt-3 h-56 overflow-hidden rounded-md border border-white/15 bg-[radial-gradient(circle_at_50%_50%,rgb(253_230_138/0.16),rgb(41_37_36/0.7)_58%,rgb(12_10_9/0.86))] sm:h-64"
-                aria-label="Pot restore board"
+                className="riverbend-board relative mx-auto mt-3 h-64 w-full max-w-sm overflow-hidden rounded-md border border-white/15 bg-stone-950/60"
+                aria-label="Pot fitting space"
               >
                 <div
-                  className={`pointer-events-none absolute left-1/2 top-1/2 h-32 w-48 -translate-x-1/2 -translate-y-1/2 rounded-full border-[14px] transition ${
-                    restoreNear ? 'border-amber-100/45 shadow-[0_0_42px_rgb(254_243_199/0.45)]' : 'border-white/10'
+                  className={`riverbend-pot-art pointer-events-none absolute left-1/2 top-1/2 h-36 w-[60%] -translate-x-1/2 -translate-y-1/2 transition ${
+                    restoreNear ? 'opacity-45' : 'opacity-15'
                   }`}
                 />
-                {restoreReady ? (
-                  <div className="pointer-events-none absolute inset-x-0 top-4 mx-auto flex w-fit items-center gap-2 rounded-full border border-amber-100/60 bg-amber-100/18 px-3 py-1 text-xs font-semibold text-amber-50">
-                    <Sparkles className="size-4" aria-hidden="true" />
-                    The pieces remember each other
-                  </div>
-                ) : null}
                 {(['rim', 'body'] as const).map((fragmentId) => {
                   const fragment = restorePuzzle[fragmentId];
                   const isRim = fragmentId === 'rim';
                   return (
                     <div
                       key={fragmentId}
-                      className="absolute z-10"
+                      className="riverbend-pot-piece absolute z-10 h-36 w-[30%]"
                       style={{
                         left: `${fragment.x}%`,
                         top: `${fragment.y}%`,
@@ -2297,35 +2758,34 @@ export default function Home() {
                         onPointerMove={(event) => handleRestorePointerMove(fragmentId, event)}
                         onPointerUp={handleRestorePointerUp}
                         onPointerCancel={handleRestorePointerUp}
-                        className={`group relative flex h-28 w-36 touch-none select-none items-center justify-center overflow-hidden rounded-[46%] border-2 bg-gradient-to-br from-orange-200/35 to-stone-700/85 shadow-xl transition hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 active:scale-95 ${
+                        className={`riverbend-fragment group relative flex h-36 w-full touch-none select-none items-center justify-center overflow-hidden transition hover:brightness-125 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 active:brightness-125 ${
                           draggingFragment === fragmentId ? 'border-amber-100 shadow-[0_0_34px_rgb(253_230_138/0.45)]' : 'border-white/25'
                         }`}
                         style={{
-                          borderTopLeftRadius: isRim ? '62%' : '34%',
-                          borderTopRightRadius: isRim ? '34%' : '62%',
                           transform: `rotate(${fragment.rotation}deg)`,
                         }}
                       >
-                        <div className={`absolute top-5 size-32 rounded-full border-[18px] border-orange-100/40 ${isRim ? '-right-11' : '-left-11'}`} />
-                        <WarmMealMark className="relative z-10 text-amber-100" />
-                        <span className="absolute bottom-2 rounded-full bg-black/45 px-2 py-0.5 text-[11px] font-semibold text-white">
+                        <span className="riverbend-fragment-art" style={{ backgroundPosition: isRim ? 'left center' : 'right center' }} />
+                        <span className="riverbend-token-label absolute bottom-2 rounded-full bg-black/45 px-2 py-0.5 text-white">
                           {isRim ? 'Rim' : 'Body'}
                         </span>
                       </button>
-                      <div className="mt-2 flex justify-center gap-1">
+                      <div className="absolute inset-x-0 top-full mt-1 flex justify-center gap-1">
                         <button
                           type="button"
                           aria-label={`Rotate ${isRim ? 'rim' : 'body'} left`}
+                          title={`Turn ${isRim ? 'rim' : 'body'} left`}
                           onClick={() => rotateRestoreFragment(fragmentId, -15)}
-                          className="flex size-8 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
+                          className="flex size-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
                         >
                           <RotateCcw className="size-4" aria-hidden="true" />
                         </button>
                         <button
                           type="button"
                           aria-label={`Rotate ${isRim ? 'rim' : 'body'} right`}
+                          title={`Turn ${isRim ? 'rim' : 'body'} right`}
                           onClick={() => rotateRestoreFragment(fragmentId, 15)}
-                          className="flex size-8 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
+                          className="flex size-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100"
                         >
                           <RotateCw className="size-4" aria-hidden="true" />
                         </button>
@@ -2334,45 +2794,128 @@ export default function Home() {
                   );
                 })}
               </div>
-              <p className="mt-3 text-sm text-stone-200">
-                {restoreReady ? 'Ready. Join the pieces.' : restoreNear ? 'A soft outline appears when the pieces are close.' : 'Drag the pieces into the glowing outline, then turn them until the marks face upright.'}
+              <p className="riverbend-helper mt-3 text-stone-200">
+                {restoreReady ? activeCopy.restore.readyHelper : restoreNear ? activeCopy.restore.nearHelper : activeCopy.restore.helper}
               </p>
             </div>
           ) : null}
 
-          {activeChapterStep === 'decide' || activeChapterStep === 'complete' ? (
-            <div className="absolute inset-x-4 bottom-28 z-20 mx-auto max-w-2xl rounded-lg border border-amber-100/75 bg-stone-950/78 p-4 text-white shadow-2xl backdrop-blur-md sm:bottom-32">
-              <p className="text-sm font-semibold text-amber-100">
-                {chapterId === 'threshold_memory' ? 'Why was the bead tucked by the doorway?' : 'What did the hearth memory suggest?'}
+          {activeChapterStep === 'restore' && chapterId === 'bench_memory' ? (
+            <div className="riverbend-puzzle riverbend-surface absolute inset-x-3 bottom-5 z-20 mx-auto max-w-lg p-3 shadow-2xl backdrop-blur-md sm:bottom-12 sm:p-4">
+              <div className="flex items-center justify-between gap-3">
+                <Button
+                  className="riverbend-secondary riverbend-helper h-11 px-3"
+                  onClick={nudgePatternPuzzle}
+                  variant="outline"
+                >
+                  Move closer
+                </Button>
+              </div>
+              <div
+                ref={patternBoardRef}
+                className="riverbend-board relative mx-auto mt-3 h-64 w-full max-w-sm overflow-hidden rounded-md border border-white/15 bg-stone-950/60"
+                aria-label="Bench pattern space"
+              >
+                <div
+                  className={`pointer-events-none absolute left-1/2 top-1/2 h-28 w-52 -translate-x-1/2 -translate-y-1/2 rounded-full border-[10px] transition ${
+                    patternNear ? 'border-teal-100/45 shadow-[0_0_42px_rgb(153_246_228/0.42)]' : 'border-white/10'
+                  }`}
+                />
+                {(['spindleA', 'spindleB', 'pigment'] as const).map((pieceId) => {
+                  const piece = patternPuzzle[pieceId];
+                  const isPigment = pieceId === 'pigment';
+                  const label = pieceId === 'spindleA' ? 'Weight A' : pieceId === 'spindleB' ? 'Weight B' : 'Color';
+                  return (
+                    <button
+                      key={pieceId}
+                      type="button"
+                      aria-label={`${label}. Drag to move.`}
+                      onPointerDown={(event) => handlePatternPointerDown(pieceId, event)}
+                      onPointerMove={(event) => handlePatternPointerMove(pieceId, event)}
+                      onPointerUp={handlePatternPointerUp}
+                      onPointerCancel={handlePatternPointerUp}
+                      className={`absolute z-10 flex touch-none select-none items-center justify-center border-2 text-white shadow-xl transition hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-100 active:scale-95 ${
+                        draggingPattern === pieceId
+                          ? 'border-teal-100 bg-teal-500/80 shadow-[0_0_34px_rgb(153_246_228/0.45)]'
+                          : isPigment
+                            ? 'size-16 rounded-full border-sky-100/70 bg-sky-500/75'
+                            : 'h-20 w-20 rounded-full border-teal-100/60 bg-stone-700/85'
+                      }`}
+                      style={{
+                        left: `${piece.x}%`,
+                        top: `${piece.y}%`,
+                        transform: `translate(-50%, -50%) rotate(${piece.rotation}deg)`,
+                      }}
+                    >
+                      {isPigment ? <span className="size-7 rounded-full bg-sky-200/90 shadow-[0_0_22px_rgb(125_211_252/0.65)]" /> : <WorkRhythmMark className="size-10 text-teal-100" />}
+                      <span className="riverbend-token-label absolute bottom-1 rounded-full bg-black/45 px-2 py-0.5 text-white">
+                        {label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="riverbend-helper mt-3 text-stone-200">
+                {patternReady ? activeCopy.restore.readyHelper : patternNear ? activeCopy.restore.nearHelper : activeCopy.restore.helper}
               </p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                {(chapterId === 'threshold_memory'
+            </div>
+          ) : null}
+
+          {roomStoryOpen ? (
+            <section ref={roomStoryRef} className="riverbend-room-story riverbend-surface absolute inset-x-4 bottom-5 z-20 mx-auto max-w-lg overflow-y-auto p-5 sm:bottom-12" aria-labelledby="room-story-heading" tabIndex={-1}>
+              <p className="riverbend-helper text-[#78a9b2]">Three discoveries, one changing room</p>
+              <h2 id="room-story-heading" className="riverbend-scene-prompt mt-2">A room, remade.</h2>
+              <ol className="mt-4 space-y-4 riverbend-notebook-body">
+                <li className="flex gap-3"><WarmMealMark className="size-9 shrink-0 text-amber-100" /><div><h3 className="riverbend-action-label">Meals by the fire</h3><p className="mt-1">{storyChoice === 'supplies' ? 'You pictured stored supplies. The soot still suggests cooking here.' : storyChoice === 'making' ? 'You pictured making. Cooking seems to have come first.' : 'You pictured everyday meals. Soot and repairs support that story.'}</p></div></li>
+                <li className="flex gap-3"><WorkRhythmMark className="size-9 shrink-0 text-teal-100" /><div><h3 className="riverbend-action-label">Hands at the bench</h3><p className="mt-1">{benchChoice === 'special' ? 'You imagined a special order. The blue color leaves that possibility open.' : benchChoice === 'unfinished' ? 'You imagined unfinished work. We know it happened, not why it stopped.' : 'You imagined steady making. Weights and color suggest repeated thread work.'}</p></div></li>
+                <li className="flex gap-3"><KeptCloseMark className="size-9 shrink-0 text-sky-100" /><div><h3 className="riverbend-action-label">A bead by the door</h3><p className="mt-1">{thresholdChoice === 'dropped' ? 'You pictured an accidental loss during a repair.' : thresholdChoice === 'shifted' ? 'You pictured a bead moved by disturbed ground.' : 'You pictured something kept close, tucked beneath the threshold.'}</p></div></li>
+              </ol>
+              <p className="riverbend-notebook-body mt-5 border-t border-white/20 pt-4">Meals, then making, then a changed doorway. One room held many lives.</p>
+              <p className="riverbend-helper mt-3 text-stone-300">Who left the bead, and why? That part of the story is still yours to wonder about.</p>
+            </section>
+          ) : null}
+
+          {(activeChapterStep === 'decide' || activeChapterStep === 'complete') && !hearthEchoPlaying && !roomStoryOpen ? (
+            <div className="riverbend-decisions riverbend-surface absolute inset-x-4 bottom-5 z-20 mx-auto max-w-2xl p-3 shadow-2xl backdrop-blur-md sm:bottom-12 sm:p-4">
+              <p className={`riverbend-action-label text-amber-100 ${activeChapterStep === 'decide' ? 'sr-only' : ''}`}>
+                {activeCopy.decide.question}
+              </p>
+              <div className={`${activeChapterStep === 'complete' ? 'mt-3' : ''} grid gap-2 sm:grid-cols-3`}>
+                {(chapterId === 'bench_memory'
                   ? [
-                      { id: 'kept' as const, label: 'Kept close', response: 'Someone tucked it where leaving and returning meet.' },
-                      { id: 'dropped' as const, label: 'Dropped by accident', response: 'Maybe, though it looks carefully held by the threshold.' },
-                      { id: 'shifted' as const, label: 'Moved later', response: 'Possible later; the doorway still keeps its own clue.' },
+                      { id: 'steady' as const, label: 'Steady making', response: 'The pieces feel practiced, like repeated work.' },
+                      { id: 'special' as const, label: 'A special order', response: 'Maybe. The color feels special, but not alone.' },
+                      { id: 'unfinished' as const, label: 'Left unfinished', response: 'Possible. The weights show work, not why it stopped.' },
+                    ]
+                  : chapterId === 'threshold_memory'
+                  ? [
+                      { id: 'kept' as const, label: 'Kept close', response: 'Its sheltered position suggests care. We cannot know for sure.' },
+                      { id: 'dropped' as const, label: 'Dropped by accident', response: 'Possible. A small bead could be lost during a repair.' },
+                      { id: 'shifted' as const, label: 'Moved later', response: 'Possible. Disturbed ground can move small clues.' },
                     ]
                   : [
-                      { id: 'daily' as const, label: 'Daily cooking', response: 'A repaired pot kept working here.' },
-                      { id: 'sudden' as const, label: 'Sudden damage', response: 'Maybe later, but not the first thing this memory says.' },
-                      { id: 'mixed' as const, label: 'Later mixing', response: 'Possible elsewhere; this clue still fits the hearth.' },
+                      { id: 'daily' as const, label: 'Everyday cooking', response: 'Soot and repairs suggest meals made here again and again.' },
+                      { id: 'supplies' as const, label: 'Keeping supplies', response: 'Pots can store supplies, but this one carries soot from cooking.' },
+                      { id: 'making' as const, label: 'Making things', response: 'Making came later. This pot and hearth suggest cooking first.' },
                     ]
                 ).map((choice) => (
                   <button
                     key={choice.id}
                     type="button"
+                    aria-pressed={(chapterId === 'bench_memory' ? benchChoice : chapterId === 'threshold_memory' ? thresholdChoice : storyChoice) === choice.id}
                     onClick={() => {
-                      if (chapterId === 'threshold_memory') chooseThresholdStory(choice.id as ThresholdChoice);
+                      if (chapterId === 'bench_memory') chooseBenchStory(choice.id as BenchChoice);
+                      else if (chapterId === 'threshold_memory') chooseThresholdStory(choice.id as ThresholdChoice);
                       else chooseStory(choice.id as StoryChoice);
                     }}
-                    className={`rounded-md border p-3 text-left text-sm transition hover:scale-[1.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 ${
-                      (chapterId === 'threshold_memory' ? thresholdChoice : storyChoice) === choice.id
-                        ? 'border-amber-100 bg-amber-200 text-stone-950'
+                    className={`riverbend-choice rounded-md border p-3 text-left transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 ${
+                      (chapterId === 'bench_memory' ? benchChoice : chapterId === 'threshold_memory' ? thresholdChoice : storyChoice) === choice.id
+                        ? 'border-emerald-100 bg-[#55735b] text-white'
                         : 'border-white/25 bg-white/10 hover:bg-white/18'
                     }`}
                   >
-                    <span className="block font-semibold">{choice.label}</span>
-                    <span className="mt-1 block text-xs opacity-80">{choice.response}</span>
+                    <span className="riverbend-action-label block">{choice.label}</span>
+                    {(chapterId === 'hearth_memory' ? storyChoice : chapterId === 'bench_memory' ? benchChoice : thresholdChoice) === choice.id ? <span className="riverbend-helper mt-1 block opacity-80" aria-live="polite">{choice.response}</span> : null}
                   </button>
                 ))}
               </div>
@@ -2380,73 +2923,94 @@ export default function Home() {
           ) : null}
         </section>
 
-        <footer className="z-30 border-t border-amber-950/20 bg-stone-950/88 px-3 py-3 text-white shadow-2xl backdrop-blur-md sm:px-5">
-          <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-              {activeChapterFinds.map((find) => {
+        <footer className="riverbend-footer z-30 px-3 py-2 text-white sm:px-5">
+          <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="hidden min-w-0 items-center gap-1.5 overflow-x-auto sm:flex">
+              {activeChapterFinds.filter((find) => findState[find.id].recovered && !(chapterId === 'hearth_memory' ? potRestored : chapterId === 'bench_memory' ? patternBound : thresholdPlaced)).map((find) => {
                 const state = findState[find.id];
-                const tokenName = chapterId === 'threshold_memory' ? 'bead' : `piece ${find.id}`;
+                const tokenName =
+                  chapterId === 'threshold_memory'
+                    ? 'bead'
+                    : chapterId === 'bench_memory'
+                      ? find.id === '9'
+                        ? 'weight A'
+                        : find.id === '10'
+                          ? 'weight B'
+                          : 'color'
+                      : find.id === '1'
+                        ? 'rim'
+                        : 'body';
                 return (
                   <span
                     key={find.id}
-                    className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold ${
-                      state.recovered ? 'border-amber-100 bg-amber-100 text-stone-950' : 'border-white/20 bg-white/8 text-stone-300'
+                    className={`riverbend-clue riverbend-token-label shrink-0 rounded-full border px-2.5 py-1 ${
+                      state.recovered ? 'border-amber-100/80 bg-amber-100/90 text-stone-950' : 'border-white/15 bg-white/5 text-stone-300'
                     }`}
                   >
-                    {state.recovered ? 'Collected' : 'Hidden'}: {tokenName}
+                    {state.recovered ? tokenName : `${tokenName} hidden`}
                   </span>
                 );
               })}
-              {potRestored && chapterId === 'hearth_memory' ? <Badge className="shrink-0 bg-emerald-500 text-white">Pot restored</Badge> : null}
-              {warmMealMarkKnown && chapterId === 'hearth_memory' ? (
-                <Badge className="shrink-0 gap-1 bg-amber-200 text-stone-950">
-                  <WarmMealMark className="size-4 border text-stone-950" />
-                  Mark learned
-                </Badge>
-              ) : null}
-              {keptCloseMarkKnown ? (
-                <Badge className="shrink-0 gap-1 bg-sky-200 text-stone-950">
+              {keptCloseMarkKnown && chapterId === 'threshold_memory' ? (
+                <span className="riverbend-clue riverbend-token-label flex shrink-0 items-center gap-1 px-2.5 py-1">
                   <KeptCloseMark className="size-4 border text-stone-950" />
-                  Door mark learned
-                </Badge>
+                  kept close
+                </span>
               ) : null}
-              {hearthMemoryAwake && chapterId === 'hearth_memory' ? <Badge className="shrink-0 bg-orange-500 text-white">Memory awake</Badge> : null}
-              {thresholdMemoryAwake ? <Badge className="shrink-0 bg-sky-500 text-white">Doorway awake</Badge> : null}
+              {workRhythmMarkKnown && chapterId === 'bench_memory' ? (
+                <span className="riverbend-clue riverbend-token-label flex shrink-0 items-center gap-1 px-2.5 py-1">
+                  <WorkRhythmMark className="size-4 border text-stone-950" />
+                  work rhythm
+                </span>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               <details className="relative">
-                <summary className="flex h-11 cursor-pointer list-none items-center gap-2 rounded-md border border-white/20 bg-white/10 px-3 text-sm font-semibold transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 [&::-webkit-details-marker]:hidden">
+                <summary aria-label="Notebook" className="riverbend-secondary riverbend-action-label flex h-11 cursor-pointer list-none items-center gap-2 rounded-md px-3 transition [&::-webkit-details-marker]:hidden">
                   <BookOpen className="size-4" aria-hidden="true" />
                   Notebook
                 </summary>
-                <div className="absolute bottom-14 right-0 w-[min(360px,calc(100vw-24px))] rounded-lg border border-amber-100/70 bg-stone-950 p-4 text-sm shadow-2xl">
-                  <p className="font-semibold text-amber-100">Room notes</p>
+                <div className="riverbend-surface riverbend-notebook-body fixed bottom-[72px] right-3 z-50 w-[min(360px,calc(100vw-24px))] p-4 shadow-2xl sm:right-5">
+                  <p className="riverbend-action-label text-amber-100">Notebook</p>
                   <ul className="mt-3 space-y-2 text-stone-200">
-                    <li>The soot line runs across both pot pieces.</li>
+                    {collectedPotPieces.length > 0 ? <li>A soot-dark curve appears on the pot fragments.</li> : <li>Find something in the room to begin a note.</li>}
                     {potRestored ? <li>The two fragments fit as one cooking pot.</li> : null}
                     {hearthMemoryAwake ? <li>This first memory points to everyday use before the room changed.</li> : null}
                     {thresholdMemoryAwake ? <li>The bead was tucked where people stepped in and out.</li> : null}
+                    {benchMemoryAwake ? <li>The bench pattern points to steady making with a flash of color.</li> : null}
                   </ul>
                   <div className="mt-4 border-t border-white/15 pt-4">
-                    <p className="font-semibold text-amber-100">Marks I know</p>
-                    {warmMealMarkKnown || keptCloseMarkKnown ? (
+                    <p className="riverbend-action-label text-amber-100">Marks I know</p>
+                    {warmMealMarkKnown || keptCloseMarkKnown || workRhythmMarkKnown ? (
                       <div className="mt-3 space-y-2">
                         {warmMealMarkKnown ? (
-                          <div className="flex items-center gap-3 rounded-md border border-amber-100/30 bg-white/10 p-3 text-stone-100">
+                          <div className="riverbend-mark-row flex items-center gap-3 text-stone-100">
                             <WarmMealMark className="size-9 shrink-0 text-amber-100" />
                             <div>
-                              <p className="font-semibold">Warm meal</p>
-                              <p className="text-xs text-stone-300">Found on a pot kept by the hearth.</p>
+                              <p className="riverbend-action-label">Warm meal</p>
+                              <p className="riverbend-helper text-stone-300">A motif on the cooking pot. Warm meal is our working name, not a translation. The scene imagines one possible use of the evidence.</p>
                             </div>
+                            <button type="button" title="Revisit hearth" aria-label="Revisit hearth" onClick={(event) => revisitMemory('hearth_memory', event.currentTarget)} className="riverbend-secondary flex size-11 shrink-0 items-center justify-center rounded-md"><Eye className="size-4" aria-hidden="true" /></button>
                           </div>
                         ) : null}
                         {keptCloseMarkKnown ? (
-                          <div className="flex items-center gap-3 rounded-md border border-sky-100/30 bg-white/10 p-3 text-stone-100">
+                          <div className="riverbend-mark-row flex items-center gap-3 text-stone-100">
                             <KeptCloseMark className="size-9 shrink-0 text-sky-100" />
                             <div>
-                              <p className="font-semibold">Kept close</p>
-                              <p className="text-xs text-stone-300">Found with a bead tucked by the doorway.</p>
+                              <p className="riverbend-action-label">Kept close</p>
+                              <p className="riverbend-helper text-stone-300">Found with a bead tucked by the doorway.</p>
                             </div>
+                            <button type="button" title="Revisit doorway" aria-label="Revisit doorway" onClick={(event) => revisitMemory('threshold_memory', event.currentTarget)} className="riverbend-secondary flex size-11 shrink-0 items-center justify-center rounded-md"><Eye className="size-4" aria-hidden="true" /></button>
+                          </div>
+                        ) : null}
+                        {workRhythmMarkKnown ? (
+                          <div className="riverbend-mark-row flex items-center gap-3 text-stone-100">
+                            <WorkRhythmMark className="size-9 shrink-0 text-teal-100" />
+                            <div>
+                              <p className="riverbend-action-label">Work rhythm</p>
+                              <p className="riverbend-helper text-stone-300">Found with weights and color by the bench.</p>
+                            </div>
+                            <button type="button" title="Revisit bench" aria-label="Revisit bench" onClick={(event) => revisitMemory('bench_memory', event.currentTarget)} className="riverbend-secondary flex size-11 shrink-0 items-center justify-center rounded-md"><Eye className="size-4" aria-hidden="true" /></button>
                           </div>
                         ) : null}
                       </div>
@@ -2456,13 +3020,14 @@ export default function Home() {
                   </div>
                 </div>
               </details>
-              <Button
-                className="h-11 min-w-36 bg-amber-300 text-stone-950 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-55"
-                disabled={(activeChapterStep === 'restore' && !restoreReady) || (activeChapterStep === 'place' && !placeReady)}
+              {activeChapterStep !== 'decide' ? <Button
+                ref={chapterActionRef}
+                className="riverbend-primary riverbend-action-label h-11 min-w-36 disabled:cursor-not-allowed disabled:opacity-55"
+                disabled={hearthEchoPlaying || (activeChapterStep === 'restore' && !activeRestoreReady) || (activeChapterStep === 'place' && !placeReady)}
                 onClick={playChapterAction}
               >
-                {primaryGameAction}
-              </Button>
+                {roomStoryOpen ? 'Back to my choice' : primaryGameAction}
+              </Button> : null}
             </div>
           </div>
         </footer>
